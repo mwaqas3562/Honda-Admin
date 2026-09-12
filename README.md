@@ -28,6 +28,8 @@ From repository root:
 npm install
 ```
 
+For complete setup, database, development, production, and troubleshooting instructions, see [RUNNING.md](RUNNING.md).
+
 ## Environment
 
 Create env files:
