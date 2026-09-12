@@ -34,7 +34,8 @@ services:
       # Supabase session-pooler connection (port 5432) — migrations and seeding.
       - key: DIRECT_URL
         sync: false
-      # The deployed Vercel origin, e.g. https://honda-admin.vercel.app
+      # The deployed Vercel origin. Not a secret, so it lives here rather than
+      # as dashboard-only state. Comma-separate to add a custom domain later.
       # No wildcard: the API refuses to boot with "*" when NODE_ENV=production.
       - key: CORS_ORIGINS
-        sync: false
+        value: https://honda-admin-web.vercel.app
