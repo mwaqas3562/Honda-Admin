@@ -1,0 +1,559 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum RoleName {
+  SUPER_ADMIN
+  SHOP_ADMIN
+  STOREKEEPER
+  JOB_CARD_MANAGER
+}
+
+enum PurchaseStatus {
+  DRAFT
+  RECEIVED
+  PAID
+  CANCELLED
+}
+
+enum StockLogType {
+  PURCHASE_IN
+  JOBCARD_OUT
+  ADJUSTMENT
+}
+
+enum JobCardStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIAL
+  PAID
+  VOID
+}
+
+enum CashEntryType {
+  SALE
+  EXPENSE
+  ONLINE
+  CASH_IN_HAND
+  TAKE_HOME
+}
+
+enum ExpenseCategory {
+  FOOD
+  UTILITY
+  RENT
+  MISC
+}
+
+enum MechanicStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK
+  ONLINE
+  OTHER
+}
+
+model Shop {
+  id          String    @id @default(cuid())
+  name        String
+  code        String    @unique
+  address     String?
+  phone       String?
+  isActive    Boolean   @default(true)
+  isDeleted   Boolean   @default(false)
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  createdBy   User?      @relation("ShopCreatedBy", fields: [createdById], references: [id])
+  users       User[]     @relation("UserShop")
+  roles       Role[]
+  customers   Customer[]
+  parts       Part[]
+  vendors     Vendor[]
+  purchases   Purchase[]
+  stockLogs   StockLog[]
+  jobCards    JobCard[]
+  invoices    Invoice[]
+  cashEntries CashEntry[]
+  expenses    Expense[]
+  mechanics   Mechanic[]
+  payments    Payment[]
+  services    Service[]
+
+  @@index([createdById])
+  @@index([isDeleted])
+}
+
+model Role {
+  id          String    @id @default(cuid())
+  shopId      String
+  name        RoleName
+  description String?
+  isDeleted   Boolean   @default(false)
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  shop        Shop      @relation(fields: [shopId], references: [id])
+  users       User[]
+  createdBy   User?     @relation("RoleCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([shopId, name])
+  @@index([shopId])
+  @@index([createdById])
+  @@index([isDeleted])
+}
+
+model User {
+  id            String      @id @default(cuid())
+  shopId        String
+  roleId        String
+  email         String      @unique
+  passwordHash  String
+  fullName      String
+  phone         String?
+  isActive      Boolean     @default(true)
+  isDeleted     Boolean     @default(false)
+  createdById   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  shop          Shop        @relation("UserShop", fields: [shopId], references: [id])
+  role          Role        @relation(fields: [roleId], references: [id])
+  createdBy     User?       @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers  User[]      @relation("UserCreatedBy")
+  createdShops  Shop[]      @relation("ShopCreatedBy")
+  createdRoles  Role[]      @relation("RoleCreatedBy")
+  customers     Customer[]  @relation("CustomerCreatedBy")
+  parts         Part[]      @relation("PartCreatedBy")
+  vendors       Vendor[]    @relation("VendorCreatedBy")
+  purchases     Purchase[]  @relation("PurchaseCreatedBy")
+  stockLogs     StockLog[]  @relation("StockLogCreatedBy")
+  jobCards      JobCard[]   @relation("JobCardCreatedBy")
+  invoices      Invoice[]   @relation("InvoiceCreatedBy")
+  cashEntries   CashEntry[] @relation("CashEntryCreatedBy")
+  expenses      Expense[]   @relation("ExpenseCreatedBy")
+  mechanicsCreated Mechanic[] @relation("MechanicCreatedBy")
+  paymentsCreated  Payment[]  @relation("PaymentCreatedBy")
+  servicesCreated  Service[]  @relation("ServiceCreatedBy")
+
+  @@index([shopId])
+  @@index([roleId])
+  @@index([createdById])
+  @@index([isDeleted])
+}
+
+model Customer {
+  id          String    @id @default(cuid())
+  shopId      String
+  name        String
+  phone       String?
+  email       String?
+  address     String?
+  isDeleted   Boolean   @default(false)
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  shop        Shop      @relation(fields: [shopId], references: [id])
+  createdBy   User?     @relation("CustomerCreatedBy", fields: [createdById], references: [id])
+  jobCards    JobCard[]
+  invoices    Invoice[]
+
+  @@index([shopId])
+  @@index([createdById])
+  @@index([isDeleted])
+}
+
+model Part {
+  id          String      @id @default(cuid())
+  shopId      String
+  name        String
+  sku         String
+  category    String?
+  stockQty    Int         @default(0)
+  /// Cost price (what we pay for it). Used for profit calculations.
+  costPrice   Int         @default(0)
+  /// Legacy alias kept for back-compat with existing data; mirrors costPrice.
+  unitPrice   Int         @default(0)
+  sellingPrice Int        @default(0)
+  /// Below this level, the part shows up in Low Stock alerts.
+  minStockLevel Int       @default(5)
+  isDeleted   Boolean     @default(false)
+  createdById String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  shop        Shop        @relation(fields: [shopId], references: [id])
+  createdBy   User?       @relation("PartCreatedBy", fields: [createdById], references: [id])
+  purchaseItems PurchaseItem[]
+  stockLogs   StockLog[]
+  invoiceItems InvoiceItem[]
+
+  @@unique([shopId, sku])
+  @@index([shopId])
+  @@index([createdById])
+  @@index([isDeleted])
+}
+
+model Vendor {
+  id          String      @id @default(cuid())
+  shopId      String
+  name        String
+  code        String
+  phone       String?
+  email       String?
+  address     String?
+  isDeleted   Boolean     @default(false)
+  createdById String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  shop        Shop        @relation(fields: [shopId], references: [id])
+  createdBy   User?       @relation("VendorCreatedBy", fields: [createdById], references: [id])
+  purchases   Purchase[]
+
+  @@unique([shopId, code])
+  @@index([shopId])
+  @@index([createdById])
+  @@index([isDeleted])
+}
+
+model Purchase {
+  id          String         @id @default(cuid())
+  shopId      String
+  purchaseNo  String
+  vendorId    String
+  totalCost   Int            @default(0)
+  status      PurchaseStatus @default(DRAFT)
+  notes       String?
+  purchasedAt DateTime       @default(now())
+  receivedAt  DateTime?
+  paidAt      DateTime?
+  isDeleted   Boolean        @default(false)
+  createdById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  shop        Shop           @relation(fields: [shopId], references: [id])
+  vendor      Vendor         @relation(fields: [vendorId], references: [id])
+  createdBy   User?          @relation("PurchaseCreatedBy", fields: [createdById], references: [id])
+  items       PurchaseItem[]
+  stockLogs   StockLog[]
+
+  @@unique([shopId, purchaseNo])
+  @@index([shopId])
+  @@index([vendorId])
+  @@index([createdById])
+  @@index([isDeleted])
+  @@index([status])
+}
+
+model PurchaseItem {
+  id          String   @id @default(cuid())
+  purchaseId  String
+  partId      String
+  quantity    Int
+  receivedQty Int      @default(0)
+  costPrice   Int      @default(0)
+  totalPrice  Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  part        Part     @relation(fields: [partId], references: [id])
+
+  @@index([purchaseId])
+  @@index([partId])
+}
+
+model JobCard {
+  id            String        @id @default(cuid())
+  shopId        String
+  customerId    String
+  jobNumber     String
+  title         String
+  description   String?
+  serviceNotes  String?
+  vehicleRegNo  String?
+  vehicleType   String?
+  engineType    String?
+  meterReading  Int?
+  mechanicAssigned String?
+  mechanicId    String?
+  days          Int?
+  nextDueDate   DateTime?
+  status        JobCardStatus @default(OPEN)
+  isFinal       Boolean       @default(false)
+  finalizedAt   DateTime?
+  laborAmount   Int           @default(0)
+  partsAmount   Int           @default(0)
+  totalAmount   Int           @default(0)
+  isDeleted     Boolean       @default(false)
+  createdById   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  shop          Shop          @relation(fields: [shopId], references: [id])
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  mechanic      Mechanic?     @relation(fields: [mechanicId], references: [id])
+  createdBy     User?         @relation("JobCardCreatedBy", fields: [createdById], references: [id])
+  stockLogs     StockLog[]
+  invoice       Invoice?
+
+  @@unique([shopId, jobNumber])
+  @@index([shopId])
+  @@index([customerId])
+  @@index([mechanicId])
+  @@index([createdById])
+  @@index([isDeleted])
+  @@index([isFinal])
+  @@index([shopId, status, isDeleted])
+}
+
+model Mechanic {
+  id          String         @id @default(cuid())
+  shopId      String
+  name        String
+  phone       String?
+  address     String?
+  status      MechanicStatus @default(ACTIVE)
+  isDeleted   Boolean        @default(false)
+  createdById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  shop        Shop           @relation(fields: [shopId], references: [id])
+  createdBy   User?          @relation("MechanicCreatedBy", fields: [createdById], references: [id])
+  jobCards    JobCard[]
+
+  @@unique([shopId, name])
+  @@index([shopId])
+  @@index([status])
+  @@index([isDeleted])
+}
+
+/// Optional master list of common labour/service entries (e.g. "Engine Tuning",
+/// "Oil Change"). Used as a quick-pick dropdown when adding labour to a Sale
+/// Invoice. Labour entries themselves are stored on the InvoiceItem table with
+/// `partId = null`; this table is only a convenience catalogue.
+model Service {
+  id           String   @id @default(cuid())
+  shopId       String
+  name         String
+  defaultPrice Int      @default(0)
+  description  String?
+  isActive     Boolean  @default(true)
+  isDeleted    Boolean  @default(false)
+  createdById  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  shop         Shop     @relation(fields: [shopId], references: [id])
+  createdBy    User?    @relation("ServiceCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([shopId, name])
+  @@index([shopId])
+  @@index([isActive])
+  @@index([isDeleted])
+}
+
+model StockLog {
+  id          String       @id @default(cuid())
+  shopId      String
+  partId      String
+  changeQty   Int
+  balanceQty  Int
+  logType     StockLogType
+  notes       String?
+  purchaseId  String?
+  jobCardId   String?
+  isDeleted   Boolean      @default(false)
+  createdById String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  shop        Shop         @relation(fields: [shopId], references: [id])
+  part        Part         @relation(fields: [partId], references: [id])
+  purchase    Purchase?    @relation(fields: [purchaseId], references: [id])
+  jobCard     JobCard?     @relation(fields: [jobCardId], references: [id])
+  createdBy   User?        @relation("StockLogCreatedBy", fields: [createdById], references: [id])
+
+  @@index([shopId])
+  @@index([partId])
+  @@index([purchaseId])
+  @@index([jobCardId])
+  @@index([createdById])
+  @@index([isDeleted])
+}
+
+model Invoice {
+  id            String        @id @default(cuid())
+  shopId        String
+  customerId    String
+  jobCardId     String?       @unique
+  invoiceNumber String
+  subtotal      Int           @default(0)
+  discountPct   Int           @default(0)
+  discountAmt   Int           @default(0)
+  totalAmount   Int           @default(0)
+  /// Sum of (item.costPrice * item.qty) at time of sale (snapshot).
+  totalCost     Int           @default(0)
+  /// totalAmount - totalCost.
+  totalProfit   Int           @default(0)
+  paidAmount    Int           @default(0)
+  saleTerm      String        @default("BY CASH")
+  jobDetail     String?
+  cellNo        String?
+  status        InvoiceStatus @default(DRAFT)
+  issuedAt      DateTime?
+  dueAt         DateTime?
+  /// Set true once stock has been deducted; prevents double deduction.
+  stockDeducted Boolean       @default(false)
+  isDeleted     Boolean       @default(false)
+  createdById   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  shop          Shop          @relation(fields: [shopId], references: [id])
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  jobCard       JobCard?      @relation(fields: [jobCardId], references: [id])
+  createdBy     User?         @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  items         InvoiceItem[]
+  payments      Payment[]
+
+  @@unique([shopId, invoiceNumber])
+  @@index([shopId])
+  @@index([customerId])
+  @@index([createdById])
+  @@index([isDeleted])
+  @@index([shopId, status, isDeleted])
+  @@index([shopId, issuedAt])
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  /// Linked Part (when the line item is a stocked product). NULL for services/labour.
+  partId      String?
+  itemCode    String?
+  itemName    String
+  qty         Int
+  rate        Int      @default(0)
+  total       Int      @default(0)
+  /// Cost price snapshot at time of sale. Stays accurate even if Part.costPrice changes later.
+  costPrice   Int      @default(0)
+  /// total - (costPrice * qty)
+  profit      Int      @default(0)
+  remarks     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  part        Part?    @relation(fields: [partId], references: [id])
+
+  @@index([invoiceId])
+  @@index([partId])
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  shopId      String
+  invoiceId   String
+  amount      Int
+  method      PaymentMethod @default(CASH)
+  notes       String?
+  paidAt      DateTime      @default(now())
+  isDeleted   Boolean       @default(false)
+  createdById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  shop        Shop    @relation(fields: [shopId], references: [id])
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  createdBy   User?   @relation("PaymentCreatedBy", fields: [createdById], references: [id])
+
+  @@index([shopId])
+  @@index([invoiceId])
+  @@index([paidAt])
+  @@index([createdById])
+  @@index([isDeleted])
+}
+
+model CashEntry {
+  id          String        @id @default(cuid())
+  shopId      String
+  entryDate   DateTime
+  type        CashEntryType
+  amount      Int           @default(0)
+  notes       String?
+  isDeleted   Boolean       @default(false)
+  createdById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  shop        Shop  @relation(fields: [shopId], references: [id])
+  createdBy   User? @relation("CashEntryCreatedBy", fields: [createdById], references: [id])
+
+  @@index([shopId])
+  @@index([entryDate])
+  @@index([type])
+  @@index([createdById])
+  @@index([isDeleted])
+}
+
+model Expense {
+  id          String          @id @default(cuid())
+  shopId      String
+  expenseDate DateTime
+  category    ExpenseCategory
+  amount      Int             @default(0)
+  notes       String?
+  isDeleted   Boolean         @default(false)
+  createdById String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  shop        Shop  @relation(fields: [shopId], references: [id])
+  createdBy   User? @relation("ExpenseCreatedBy", fields: [createdById], references: [id])
+
+  @@index([shopId])
+  @@index([expenseDate])
+  @@index([category])
+  @@index([createdById])
+  @@index([isDeleted])
+}
+
+/// Per-shop monotonic counter for human-readable document numbers
+/// (e.g. JobCard JC-1, JC-2; Invoice 001, 002). Atomic increments
+/// via Prisma's `update { data: { lastValue: { increment: 1 } } }`
+/// keep numbering gap-free per shop.
+model NumberSequence {
+  id        String   @id @default(cuid())
+  shopId    String
+  /// One of: "JOB_CARD" | "INVOICE" | "PURCHASE"
+  kind      String
+  lastValue Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([shopId, kind])
+  @@index([shopId])
+}
