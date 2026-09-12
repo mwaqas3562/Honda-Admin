@@ -163,3 +163,134 @@ leaks.
 **Logs.** Render → service → Logs shows `morgan` output for every request.
 The API rate-limits login to 10 attempts per 15 minutes per IP, and general API
 traffic to 300 requests per minute.
+
+---
+
+# Day-to-day: fixing a bug and shipping it
+
+Both hosts deploy automatically when you push to `main`. The whole loop is:
+
+```bash
+git pull                     # start from what is deployed
+# ...make the fix...
+npm run build:all            # catch type errors before the host does
+git commit -am "Fix X"
+git push origin main
+```
+
+Render rebuilds the API and Vercel rebuilds the web app, in parallel, within a
+few seconds of the push. Nothing else is required.
+
+## First, protect your live data
+
+`apps/api/.env` currently holds the **production** Supabase credentials, so
+`npm run dev:api` reads and writes your real workshop data. A stray test invoice
+or a deletion while debugging lands in the live database.
+
+Point local development at its own database instead. You already have PostgreSQL
+running locally:
+
+```bash
+createdb honda_admin_dev
+```
+
+Then in `apps/api/.env`, replace both URLs:
+
+```env
+DATABASE_URL=postgresql://localhost:5432/honda_admin_dev
+DIRECT_URL=postgresql://localhost:5432/honda_admin_dev
+```
+
+Create the schema and an account to log in with:
+
+```bash
+npm --workspace apps/api run prisma:deploy
+ADMIN_EMAIL='dev@local' ADMIN_PASSWORD='dev-password-123' \
+  npm --workspace apps/api run seed:admin
+```
+
+Keep the production URLs somewhere safe (a password manager) in case you need to
+run a migration or a seed against Supabase later. The deployed services hold
+their own copies in Render's environment settings, so nothing breaks when you
+change your local file — it is not read by anything but your own machine.
+
+## Running locally
+
+Two terminals from the repository root:
+
+```bash
+npm run dev:api     # http://localhost:4000
+npm run dev:web     # http://localhost:3000
+```
+
+`apps/web/.env.local` already points the local frontend at the local API. The
+API's default `CORS_ORIGINS` allows localhost, so the two connect with no
+further setup.
+
+## Code changes
+
+Push to `main`, and that is it. Watch the result:
+
+- **API** — Render dashboard → `honda-admin-api` → Logs. A deploy that fails
+  leaves the previous version running, so a broken build cannot take the site
+  down.
+- **Web** — Vercel dashboard → Deployments. Same protection: a failed build
+  never replaces the live one.
+
+Run `npm run build:all` before pushing. It catches the type errors that would
+otherwise fail the hosted build several minutes later.
+
+## Schema changes
+
+Changing `schema.prisma` needs a migration, generated against your **local**
+database, never against Supabase:
+
+```bash
+npm --workspace apps/api run prisma:migrate     # creates apps/api/prisma/migrations/<timestamp>_<name>/
+git add apps/api/prisma/migrations
+git commit -m "Add X column"
+git push origin main
+```
+
+Render runs `prisma migrate deploy` on boot, which applies only what is pending.
+
+Never run `prisma migrate dev` with production credentials in `.env`. It is the
+development command: when it sees drift it offers to reset the database, and
+that would destroy your parts, invoices and job cards.
+
+Some migrations destroy data regardless of tooling — dropping a column, or
+narrowing a type. Take a backup from the Supabase dashboard before those.
+
+## Changing the frontend's API URL
+
+`NEXT_PUBLIC_API_BASE_URL` is compiled into the JavaScript bundle at build time,
+not read when the page loads. Changing it in Vercel's settings does nothing until
+you **redeploy** the frontend: Vercel → Deployments → ⋯ → Redeploy.
+
+## Rolling back a bad deploy
+
+Both hosts keep previous builds and restore them in seconds:
+
+- **Vercel** → Deployments → find the last good one → ⋯ → **Promote to
+  Production**
+- **Render** → `honda-admin-api` → Events → find the previous successful deploy →
+  **Rollback**
+
+Rolling back the API does **not** roll back the database. If the bad deploy
+included a migration, reverting the code leaves the schema changed — write a new
+migration to undo it rather than expecting a rollback to handle it.
+
+## When something breaks in production
+
+1. **Check it is not a cold start.** On Render's free plan the API sleeps after
+   15 minutes idle; the first request then takes 30-50 seconds. A slow first
+   login is expected, not a fault.
+2. **Check the API directly**, which separates a backend problem from a
+   frontend one:
+   ```bash
+   curl https://honda-admin-api.onrender.com/api/v1/health
+   ```
+3. **Read the Render logs.** Every request is logged, with status and duration.
+4. **Open the browser console on the site.** CORS errors, and the explicit
+   `[config]` error when the API URL is missing from the build, both surface
+   there.
