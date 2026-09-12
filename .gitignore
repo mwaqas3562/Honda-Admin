@@ -13,3 +13,9 @@ build/
 
 # misc
 *.log
+
+# typescript incremental build info
+*.tsbuildinfo
+
+# deploy tooling
+.vercel/

@@ -8,7 +8,11 @@
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev --name init",
-    "rbac:backfill": "node prisma/backfill-roles.cjs"
+    "rbac:backfill": "node prisma/backfill-roles.cjs",
+    "postinstall": "prisma generate",
+    "prisma:deploy": "prisma migrate deploy",
+    "start:prod": "prisma migrate deploy && node dist/server.js",
+    "seed:admin": "node prisma/seed-admin.cjs"
   },
   "dependencies": {
     "@prisma/client": "^6.7.0",
@@ -32,5 +36,8 @@
     "prisma": "^6.7.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20.9.0"
   }
 }

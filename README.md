@@ -30,6 +30,8 @@ npm install
 
 For complete setup, database, development, production, and troubleshooting instructions, see [RUNNING.md](RUNNING.md).
 
+To deploy the application publicly (Supabase + Render + Vercel), see [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## Environment
 
 Create env files:

@@ -9,9 +9,10 @@
     "dev:web": "npm --workspace apps/web run dev",
     "dev:api": "npm --workspace apps/api run dev",
     "build:web": "npm --workspace apps/web run build",
-    "build:api": "npm --workspace apps/api run build"
+    "build:api": "npm --workspace apps/api run build",
+    "build:all": "npm run build:api && npm run build:web"
   },
-  "dependencies": {
-    "mssql": "^12.5.2"
+  "engines": {
+    "node": ">=20.9.0"
   }
 }

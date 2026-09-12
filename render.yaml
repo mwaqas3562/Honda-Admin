@@ -1,0 +1,35 @@
+# Render Blueprint for the Honda Admin API.
+# The Next.js frontend is deployed separately on Vercel (see DEPLOYMENT.md).
+#
+# Values marked `sync: false` are NOT stored in this file — set them in the
+# Render dashboard under the service's Environment tab.
+services:
+  - type: web
+    name: honda-admin-api
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    # Installs only the api workspace (plus the root) so Next and friends are
+    # not pulled onto the API server. postinstall runs `prisma generate`.
+    buildCommand: npm ci --include-workspace-root --workspace apps/api && npm --workspace apps/api run build
+    # Applies any pending migrations, then boots. Render provides PORT itself.
+    startCommand: npm --workspace apps/api run start:prod
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_EXPIRES_IN
+        value: 1d
+      - key: JWT_SECRET
+        generateValue: true
+      # Supabase pooled connection (port 6543, ?pgbouncer=true) — app queries.
+      - key: DATABASE_URL
+        sync: false
+      # Supabase session-pooler connection (port 5432) — migrations and seeding.
+      - key: DIRECT_URL
+        sync: false
+      # The deployed Vercel origin, e.g. https://honda-admin.vercel.app
+      # No wildcard: the API refuses to boot with "*" when NODE_ENV=production.
+      - key: CORS_ORIGINS
+        sync: false

@@ -1,6 +1,10 @@
 # Running Honda Admin
 
 This guide starts the Honda Workshop Planning and Management application locally.
+To put it on the internet instead, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+Commands are shown for PowerShell. On macOS or Linux, `Copy-Item a b` is
+`cp a b` and `Set-Location x` is `cd x`; everything else is identical.
 
 ## Requirements
 
@@ -56,6 +60,10 @@ npm --workspace apps/api run prisma:generate
 npm --workspace apps/api run prisma:migrate
 ```
 
+`prisma:generate` is required, not optional. `npm install` leaves a stub
+Prisma client behind, and `npm run build:api` fails with a few hundred
+`Namespace 'Prisma' has no exported member` errors until you run it.
+
 To create the sample shop, roles, and development users:
 
 ```powershell
@@ -73,7 +81,15 @@ The seed users all use the password `password123`:
 | Storekeeper | `store@honda.local` |
 | Job card manager | `jobcard@honda.local` |
 
-Change or remove these development accounts before using a shared or production database.
+These credentials are published in this repository, so `seed.cjs` is for local
+development only. For any database reachable from the internet, use the
+production seed instead, which creates a single admin from environment
+variables and no known password:
+
+```powershell
+$env:ADMIN_EMAIL='you@example.com'; $env:ADMIN_PASSWORD='a-long-unique-password'
+npm --workspace apps/api run seed:admin
+```
 
 ## 4. Start the application
 

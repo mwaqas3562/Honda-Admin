@@ -4,7 +4,7 @@ import type {
   MechanicJobsResponse,
 } from "@/types/jobcard-report";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+import { API_BASE } from "@/lib/api-base";
 
 function authHeaders(): HeadersInit {
   if (typeof window === "undefined") return { "Content-Type": "application/json" };
