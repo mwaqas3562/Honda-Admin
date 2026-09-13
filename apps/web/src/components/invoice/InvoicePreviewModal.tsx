@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoiceApi, type InvoiceData } from "@/lib/api";
 import InvoiceReceipt, { RECEIPT_CSS } from "./InvoiceReceipt";
 import InvoiceModernView from "./InvoiceModernView";
@@ -12,7 +12,9 @@ type Props = {
   marking?: boolean;
   onMarkPaid: () => void;
   onClose: () => void;
-  autoPrint?: boolean;
+  /** Bump this number to fire a print. Each new value prints once, so the
+   *  same invoice can be reprinted as many times as needed. */
+  printSignal?: number;
 };
 
 export default function InvoicePreviewModal({
@@ -22,7 +24,7 @@ export default function InvoicePreviewModal({
   marking = false,
   onMarkPaid,
   onClose,
-  autoPrint = false,
+  printSignal = 0,
 }: Props) {
   const [inv, setInv] = useState<InvoiceData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,13 +38,17 @@ export default function InvoicePreviewModal({
     return () => { cancelled = true; };
   }, [invoiceId]);
 
-  /* Auto-print once invoice data is ready */
+  /* Print whenever the signal changes and the invoice is loaded. Tracking the
+   * last printed value means a repeated bump reprints, while a re-render with
+   * the same value does not. */
+  const lastPrinted = useRef(0);
   useEffect(() => {
-    if (autoPrint && inv) {
-      setTimeout(() => handlePrint(), 300);
-    }
+    if (!inv || !printSignal || printSignal === lastPrinted.current) return;
+    lastPrinted.current = printSignal;
+    const t = setTimeout(() => handlePrint(), 300);
+    return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPrint, inv]);
+  }, [printSignal, inv]);
 
   /* Close on Esc */
   useEffect(() => {
@@ -75,14 +81,14 @@ export default function InvoicePreviewModal({
         /* Hide the thermal receipt on screen — it only exists for printing. */
         #ipm-print-area { display: none; }
         @media print {
-          @page { size: 80mm auto; margin: 0; }
+          @page { size: 72mm auto; margin: 0; }
           body.ipm-printing * { visibility: hidden !important; }
           body.ipm-printing #ipm-print-area, body.ipm-printing #ipm-print-area * { visibility: visible !important; }
           body.ipm-printing #ipm-print-area {
             display: block !important;
             position: absolute !important;
             left: 0 !important; top: 0 !important;
-            width: 80mm !important;
+            width: 72mm !important;
             margin: 0 !important; padding: 0 !important;
             background: #fff !important;
           }

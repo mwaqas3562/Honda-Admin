@@ -87,6 +87,9 @@ export type InvoiceListResponse = {
 export type CreateInvoicePayload = {
   /** Mandatory link to a non-completed Job Card. */
   jobCardId: string;
+  /** ISO business date of the bill. Defaults to now. Drives what the receipt
+   *  prints and which day the reports count it under. */
+  entryDate?: string;
   jobDetail?: string;
   cellNo?: string;
   saleTerm?: string;
@@ -108,6 +111,7 @@ export type CreateInvoicePayload = {
 };
 
 export type UpdateInvoicePayload = {
+  entryDate?: string;
   jobDetail?: string;
   cellNo?: string;
   saleTerm?: string;
@@ -612,9 +616,11 @@ export const jobCardsApi = {
     limit = 100,
     status?: JobCardStatus,
     search?: string,
-    invoiceableOnly?: boolean
+    invoiceableOnly?: boolean,
+    excludeCompleted?: boolean
   ) => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (excludeCompleted) q.set("excludeCompleted", "true");
     if (status) q.set("status", status);
     if (search) q.set("search", search);
     if (invoiceableOnly) q.set("invoiceable", "true");

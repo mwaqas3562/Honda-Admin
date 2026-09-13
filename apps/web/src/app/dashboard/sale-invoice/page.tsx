@@ -3,9 +3,8 @@
 import { blockDecimalKeys, blockDecimalPaste } from "@/lib/intInput";
 import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useInvoiceDelete, useInvoiceSave } from "@/hooks/useInvoice";
+import { useInvoiceSave } from "@/hooks/useInvoice";
 import { useParts } from "@/hooks/useInventory";
-import { useUserRole } from "@/hooks/useUserRole";
 import { jobCardsApi, partsApi, servicesApi, invoiceApi, type InvoiceData, type JobCardData, type PartData, type ServiceData } from "@/lib/api";
 import SmartSearch from "@/components/SmartSearch";
 import InvoicePreviewModal from "@/components/invoice/InvoicePreviewModal";
@@ -22,7 +21,30 @@ export type InvoiceLineItem = {
   remarks: string;
 };
 
-const TODAY = new Date().toISOString().slice(0, 10);
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** Today as yyyy-mm-dd. A function, not a constant: a module-level value is
+ *  computed once when the tab loads and would be stale after midnight — which
+ *  now writes a wrong business date, not just a wrong-looking box. */
+function todayInput(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+/** `2026-09-13T00:00:00.000Z` → `2026-09-13`. Read in UTC because that is how
+ *  entryDateISO writes it; mixing local and UTC here shifts a bill by a day. */
+function toDateInput(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+}
+
+/** yyyy-mm-dd → ISO at UTC midnight. Null when the box is empty or malformed —
+ *  `new Date("").toISOString()` throws, which killed the save with no message. */
+function entryDateISO(value: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const ms = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+}
 const emptyEntry = (): Omit<InvoiceLineItem, "id" | "total"> => ({
   partId: null, costPrice: 0,
   itemCode: "", itemName: "", qty: 1, rate: 0, remarks: "",
@@ -58,7 +80,7 @@ function SaleInvoiceInner() {
   );
 
   /* ── Invoice form state ──────────────────────────────────── */
-  const [date, setDate]           = useState(TODAY);
+  const [date, setDate]           = useState(todayInput());
   const [jobDetail, setJobDetail] = useState("");
   const [cellNo, setCellNo]       = useState("");
   const [saleTerm, setSaleTerm]   = useState("BY CASH");
@@ -74,7 +96,10 @@ function SaleInvoiceInner() {
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [savedStatus, setSavedStatus] = useState<string>("DRAFT");
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [autoPrint, setAutoPrint] = useState(false);
+  /* Bumped to trigger a print in the preview modal. Each bump prints once,
+   * so the same bill can be reprinted as many times as needed. */
+  const [printSignal, setPrintSignal] = useState(0);
+  function firePrint() { setPrintSignal((n) => n + 1); }
 
   /* ── Invoice search (load existing invoice) ────────────── */
   const [invSearch, setInvSearch] = useState("");
@@ -91,8 +116,6 @@ function SaleInvoiceInner() {
   const isView = !!savedId && savedStatus !== "DRAFT";
 
   const { save, update, saving, error: saveError } = useInvoiceSave();
-  const { remove, deleting, error: deleteError } = useInvoiceDelete();
-  const { canDelete } = useUserRole();
 
   /* ── Pre-select if URL has ?jobCardId ────────────────────── */
   useEffect(() => {
@@ -139,6 +162,7 @@ function SaleInvoiceInner() {
     setDiscountAmt(Math.round(Number(inv.discountAmt ?? 0)));
     setCashRcv(Number(inv.paidAmount));
     setSaleTerm(inv.saleTerm ?? "BY CASH");
+    setDate(toDateInput(inv.createdAt));
     setJobDetail(inv.jobDetail ?? "");
     setCellNo(inv.cellNo ?? "");
     setMeterReading(inv.jobCard?.meterReading != null ? String(inv.jobCard.meterReading) : "");
@@ -317,7 +341,7 @@ function SaleInvoiceInner() {
 
   function resetForm() {
     clearJob();
-    setDate(TODAY); setSaleTerm("BY CASH"); setEntry(emptyEntry());
+    setDate(todayInput()); setSaleTerm("BY CASH"); setEntry(emptyEntry());
     setItems([]); setDiscountAmt(0); setCashRcv(0);
     setLabourEntry({ name: "", description: "", amount: 0 });
     setSavedId(null); setSavedNo(null); setStatusMsg(null);
@@ -334,6 +358,10 @@ function SaleInvoiceInner() {
     const pct = grossNow > 0 ? (safeDisc / grossNow) * 100 : 0;
     return {
       jobCardId: selectedJob!.id,
+      /* The Entry Date field drives the bill's business date — the receipt
+       * prints it and the daily reports group by it. Without this the invoice
+       * silently took today's date however the calendar was set. */
+      entryDate: entryDateISO(date)!,
       jobDetail,
       cellNo,
       saleTerm,
@@ -352,7 +380,15 @@ function SaleInvoiceInner() {
     };
   }
 
+  /** Blocks a save when the date box is empty or half-typed. */
+  function entryDateInvalid(): boolean {
+    if (entryDateISO(date)) return false;
+    setStatusMsg("Enter a valid Entry Date before saving.");
+    return true;
+  }
+
   async function handleSave() {
+    if (entryDateInvalid()) return;
     if (!selectedJob) { setStatusMsg("Select a Job Card first."); return; }
     if (items.length === 0) { setStatusMsg("Add at least one item."); return; }
     // Existing DRAFT → update in place. Otherwise create a new invoice.
@@ -361,6 +397,7 @@ function SaleInvoiceInner() {
       const safeDisc = Math.min(Math.max(0, Math.floor(discountAmt)), grossNow);
       const pct = grossNow > 0 ? (safeDisc / grossNow) * 100 : 0;
       const inv = await update(savedId, {
+        entryDate: entryDateISO(date)!,
         jobDetail,
         cellNo,
         saleTerm,
@@ -392,7 +429,12 @@ function SaleInvoiceInner() {
     }
   }
 
+  function exitToIssueJob() {
+    router.push("/dashboard/issue-job");
+  }
+
   async function handlePay() {
+    if (entryDateInvalid()) return;
     if (stockWarnings.length > 0) {
       setStatusMsg(`Insufficient stock — ${stockWarnings.join("; ")}`);
       return;
@@ -407,27 +449,23 @@ function SaleInvoiceInner() {
         setSavedStatus(inv.status);
         setStatusMsg(`Paid: ${inv.invoiceNumber}. Stock deducted, Job Card auto-completed.`);
         fetchParts(1, 500);
-        setAutoPrint(true);
         setPreviewOpen(true);
+        firePrint();
       }
       return;
     }
-    const inv = await update(savedId, { status: "PAID", paidAmount: cashRcv });
+    const inv = await update(savedId, {
+      status: "PAID",
+      paidAmount: cashRcv,
+      entryDate: entryDateISO(date)!,
+    });
     if (inv) {
       setSavedStatus(inv.status);
       setStatusMsg(`Paid: ${inv.invoiceNumber}. Stock deducted, Job Card auto-completed.`);
       fetchParts(1, 500);
-      setAutoPrint(true);
       setPreviewOpen(true);
+      firePrint();
     }
-  }
-
-  async function handleDelete() {
-    if (!canDelete) { setStatusMsg("You are not allowed to delete invoices."); return; }
-    if (!savedId) { setStatusMsg("No saved invoice to delete."); return; }
-    if (!confirm("Delete this invoice?")) return;
-    const ok = await remove(savedId);
-    if (ok) { resetForm(); setStatusMsg("Invoice deleted."); }
   }
 
   const customerName = selectedJob?.customer.name ?? "";
@@ -439,6 +477,32 @@ function SaleInvoiceInner() {
       <div className="si-titlebar">
         <span className="si-title">SALE INVOICE</span>
         <div className="si-titlebar-right">
+          {!isView && (
+            <button
+              type="button"
+              className="si-foot-btn"
+              onClick={handlePay}
+              disabled={saving}
+              title="Mark this invoice as paid"
+              style={{ marginRight: 10, background: "#0a7a30", color: "#fff" }}
+            >
+              {saving ? "…" : "✓ Mark as Paid"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="si-foot-btn"
+            title={savedId ? "Print another copy of this bill" : "Save or open an invoice first"}
+            disabled={!savedId}
+            onClick={() => {
+              if (!savedId) { setStatusMsg("Open or save an invoice before printing."); return; }
+              setPreviewOpen(true);
+              firePrint();
+            }}
+            style={{ marginRight: 10 }}
+          >
+            🖨 Print Duplicate
+          </button>
           <span className="si-time">
             Time : {new Date().toLocaleTimeString("en-MY", { hour: "2-digit", minute: "2-digit" })}
           </span>
@@ -926,31 +990,25 @@ function SaleInvoiceInner() {
               disabled={saving || (!!savedId && savedStatus !== "DRAFT")}>
               {saving ? "Saving…" : savedId && savedStatus === "DRAFT" ? "💾 Update Draft" : "💾 Save Draft"}
             </button>
-            <button className="si-foot-btn" type="button" onClick={handlePay} disabled={saving}
-              style={{ background: "#0a7a30", color: "#fff" }}>
-              {saving ? "…" : "✓ Mark as Paid"}
+            <button className="si-foot-btn" type="button" onClick={exitToIssueJob}
+              style={{ background: "#475569", color: "#fff" }}>
+              ⎋ Exit
             </button>
-            {canDelete && (
-              <button className="si-foot-btn si-foot-delete" type="button" onClick={handleDelete}
-                disabled={deleting || !savedId}>
-                {deleting ? "Deleting…" : "✕ Delete"}
-              </button>
-            )}
           </>
         )}
         <button className="si-foot-btn" type="button" onClick={() => {
           if (!savedId) { setStatusMsg("Save the invoice before previewing."); return; }
-          setAutoPrint(false); setPreviewOpen(true);
+          setPreviewOpen(true);
         }}>🖨 Preview</button>
         {isView && (
-          <button className="si-foot-btn" type="button" onClick={resetForm}
+          <button className="si-foot-btn" type="button" onClick={exitToIssueJob}
             style={{ background: "#475569", color: "#fff" }}>
             ⎋ Exit
           </button>
         )}
-        {(statusMsg || saveError || deleteError) && (
-          <span className={`si-status-msg ${saveError || deleteError ? "si-status-error" : "si-status-ok"}`}>
-            {saveError ?? deleteError ?? statusMsg}
+        {(statusMsg || saveError) && (
+          <span className={`si-status-msg ${saveError ? "si-status-error" : "si-status-ok"}`}>
+            {saveError ?? statusMsg}
           </span>
         )}
       </div>
@@ -962,8 +1020,14 @@ function SaleInvoiceInner() {
           canMarkPaid
           marking={saving}
           onMarkPaid={async () => { await handlePay(); }}
-          onClose={() => { setPreviewOpen(false); setAutoPrint(false); }}
-          autoPrint={autoPrint}
+          onClose={() => {
+            setPreviewOpen(false);
+            /* Reset the signal. The modal's "already printed" marker lives in a
+             * ref that dies with the component, so leaving a used signal set
+             * would make the next Preview print itself on open. */
+            setPrintSignal(0);
+          }}
+          printSignal={printSignal}
         />
       )}
 

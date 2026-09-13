@@ -368,6 +368,7 @@ export async function createInvoice(
     /* Invoice number mirrors the linked Job Card number (1-to-1 relationship). */
     const invoiceNumber = jobCard.jobNumber;
 
+    const entryDate = input.entryDate ? new Date(input.entryDate) : null;
     const created = await tx.invoice.create({
       data: {
         shopId,
@@ -385,7 +386,9 @@ export async function createInvoice(
         totalProfit,
         paidAmount: input.paidAmount,
         status: input.status,
-        issuedAt: input.status === "PAID" ? new Date() : null,
+        /* A back-dated bill is issued on its own date, not today. */
+        issuedAt: input.status === "PAID" ? (entryDate ?? new Date()) : null,
+        ...(entryDate && { createdAt: entryDate }),
         createdById: userId,
         items: {
           create: items.map((i) => ({
@@ -528,12 +531,20 @@ export async function updateInvoice(
       where: { id },
       data: {
         ...(invoiceNumberUpdate ? { invoiceNumber: invoiceNumberUpdate } : {}),
+        /* Editing a draft can move it to a different business date. */
+        ...(input.entryDate && { createdAt: new Date(input.entryDate) }),
         ...(input.jobDetail !== undefined && { jobDetail: input.jobDetail }),
         ...(input.cellNo !== undefined && { cellNo: input.cellNo }),
         ...(input.saleTerm && { saleTerm: input.saleTerm }),
         ...(input.status && {
           status: input.status,
-          ...(transitioningToPaid ? { issuedAt: new Date() } : {}),
+          ...(transitioningToPaid
+            ? { issuedAt: input.entryDate ? new Date(input.entryDate) : new Date() }
+            : input.status === "PAID" && input.entryDate
+              /* Re-dating an already-paid bill moves issuedAt too, so the
+               * sales report and the dashboard trend keep agreeing. */
+              ? { issuedAt: new Date(input.entryDate) }
+              : {}),
         }),
         discountPct,
         paidAmount,

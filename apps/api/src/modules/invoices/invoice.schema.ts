@@ -15,6 +15,10 @@ export const invoiceItemSchema = z.object({
 export const createInvoiceSchema = z.object({
   /** A non-completed Job Card MUST be selected. */
   jobCardId: z.string().min(1),
+  /** Business date of the bill. Defaults to now when omitted, and is what the
+   *  receipt prints and the daily reports group by, so back-dated entries land
+   *  on the day the work was actually done. */
+  entryDate: z.string().datetime().optional(),
   jobDetail: z.string().optional(),
   /** Override the auto-filled customer cell number for this invoice. */
   cellNo: z.string().optional(),
@@ -27,6 +31,7 @@ export const createInvoiceSchema = z.object({
 });
 
 export const updateInvoiceSchema = z.object({
+  entryDate: z.string().datetime().optional(),
   jobDetail: z.string().optional(),
   cellNo: z.string().optional(),
   saleTerm: z.string().optional(),
