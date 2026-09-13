@@ -13,7 +13,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "start:prod": "prisma migrate deploy && node dist/server.js",
     "seed:admin": "node prisma/seed-admin.cjs",
-    "shop:set": "node prisma/set-shop.cjs"
+    "shop:set": "node prisma/set-shop.cjs",
+    "user:create": "node prisma/create-user.cjs"
   },
   "dependencies": {
     "@prisma/client": "^6.7.0",
