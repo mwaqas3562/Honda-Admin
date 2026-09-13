@@ -19,3 +19,6 @@ build/
 
 # deploy tooling
 .vercel/
+
+# local database backups (contain real business data — never commit)
+backups/
