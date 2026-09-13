@@ -124,11 +124,16 @@ export default function InvoiceModernView({ inv }: Props) {
         }}>{inv.status}</span>
       </div>
 
-      <div style={{
-        marginTop: 14, paddingTop: 10, borderTop: "1px dashed #cbd5e1",
-        textAlign: "center", color: "#64748b", fontSize: 11.5, fontStyle: "italic",
-      }}>
-        Thank you for your business!
+      <div
+        dir="rtl"
+        lang="ur"
+        style={{
+          marginTop: 14, paddingTop: 10, borderTop: "1px dashed #cbd5e1",
+          textAlign: "center", color: "#64748b", fontSize: 14, lineHeight: 1.9,
+          fontFamily: '"Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", "Urdu Typesetting", "Segoe UI", Tahoma, Arial, sans-serif',
+        }}
+      >
+        آپ کی تشریف آوری کا شکریہ
       </div>
     </div>
   );
