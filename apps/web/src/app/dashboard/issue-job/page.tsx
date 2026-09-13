@@ -90,8 +90,11 @@ export default function IssueJobPage() {
     }
   }
 
+  /** Recent list is a work queue, so completed cards are excluded — by the
+   *  server, not by filtering a page client-side, which would leave the panel
+   *  empty once the 20 newest cards happened to all be completed. */
   async function refreshList() {
-    const r = await fetch(1, 20);
+    const r = await fetch(1, 20, undefined, undefined, undefined, true);
     if (r) setRecent(r.data);
   }
 

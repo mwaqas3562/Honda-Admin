@@ -26,11 +26,12 @@ export function useJobCards() {
       limit = 100,
       status?: JobCardStatus,
       search?: string,
-      invoiceableOnly?: boolean
+      invoiceableOnly?: boolean,
+      excludeCompleted?: boolean
     ) => {
       setLoading(true); setError(null);
       try {
-        const r = await jobCardsApi.list(page, limit, status, search, invoiceableOnly);
+        const r = await jobCardsApi.list(page, limit, status, search, invoiceableOnly, excludeCompleted);
         setData(r);
         return r;
       } catch (e) {

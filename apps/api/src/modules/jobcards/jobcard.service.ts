@@ -52,7 +52,11 @@ export async function listJobCards(
   status?: "OPEN" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED",
   search?: string,
   /** When true, only return cards eligible to be invoiced (open/in-progress and not yet invoiced). */
-  invoiceableOnly?: boolean
+  invoiceableOnly?: boolean,
+  /** When true, drop COMPLETED cards. For work-queue views, where filtering
+   *  client-side would silently shrink a fixed page to nothing once most
+   *  recent cards are done. */
+  excludeCompleted?: boolean
 ) {
   const skip = (page - 1) * limit;
   const where: Prisma.JobCardWhereInput = {
@@ -62,6 +66,9 @@ export async function listJobCards(
     ...(invoiceableOnly && {
       status: { notIn: ["COMPLETED", "CANCELLED"] },
       invoice: null,
+    }),
+    ...(!invoiceableOnly && !status && excludeCompleted && {
+      status: { not: "COMPLETED" as const },
     }),
     ...(search && {
       OR: [

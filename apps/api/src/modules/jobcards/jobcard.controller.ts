@@ -32,6 +32,7 @@ export async function listJobCardsHandler(
   const invoiceableOnly =
     String(req.query.invoiceable ?? "") === "true" ||
     String(req.query.invoiceableOnly ?? "") === "true";
+  const excludeCompleted = String(req.query.excludeCompleted ?? "") === "true";
   res.json(
     await listJobCards(
       shopId,
@@ -39,7 +40,8 @@ export async function listJobCardsHandler(
       limit,
       status,
       search,
-      invoiceableOnly
+      invoiceableOnly,
+      excludeCompleted
     )
   );
 }
