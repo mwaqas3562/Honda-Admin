@@ -2,6 +2,7 @@
 
 This guide starts the Honda Workshop Planning and Management application locally.
 To put it on the internet instead, see [DEPLOYMENT.md](DEPLOYMENT.md).
+For the complete project reference, see [HANDBOOK.md](HANDBOOK.md).
 
 Commands are shown for PowerShell. On macOS or Linux, `Copy-Item a b` is
 `cp a b` and `Set-Location x` is `cd x`; everything else is identical.

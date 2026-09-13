@@ -28,7 +28,10 @@ From repository root:
 npm install
 ```
 
-For complete setup, database, development, production, and troubleshooting instructions, see [RUNNING.md](RUNNING.md).
+**[HANDBOOK.md](HANDBOOK.md) is the end-to-end reference** — architecture, environments,
+database setup, migrations, deployment flow, troubleshooting and known limitations.
+
+For condensed first-time local setup, see [RUNNING.md](RUNNING.md).
 
 To deploy the application publicly (Supabase + Render + Vercel), see [DEPLOYMENT.md](DEPLOYMENT.md).
 

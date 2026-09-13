@@ -1,5 +1,8 @@
 # Deploying Honda Admin
 
+> First-time deployment walkthrough. For the full picture — architecture,
+> environments, migrations, troubleshooting — see [HANDBOOK.md](HANDBOOK.md).
+
 Live architecture:
 
 | Piece | Host | What runs there |
