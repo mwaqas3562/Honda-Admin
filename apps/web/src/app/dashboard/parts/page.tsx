@@ -1,5 +1,6 @@
 "use client";
 
+import AdminOnly from "@/components/AdminOnly";
 import { blockDecimalKeys, blockDecimalPaste } from "@/lib/intInput";
 import { useEffect, useState } from "react";
 import { useParts } from "@/hooks/useInventory";
@@ -17,7 +18,7 @@ type FormState = {
 
 const empty: FormState = { id: null, name: "", sku: "", costPrice: "", sellingPrice: "", stockQty: "0", minStockLevel: "0" };
 
-export default function PartsPage() {
+function PartsPageInner() {
   const { data, loading, error, saving, fetch, create, update } = useParts();
   const [form, setForm] = useState<FormState>(empty);
   const [search, setSearch] = useState("");
@@ -170,5 +171,13 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="field-label">{label}</span>
       {children}
     </div>
+  );
+}
+
+export default function PartsPage() {
+  return (
+    <AdminOnly>
+      <PartsPageInner />
+    </AdminOnly>
   );
 }

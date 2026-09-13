@@ -27,7 +27,14 @@ const allRoles = [
   Role.JOB_CARD_MANAGER,
 ];
 
-const writeRoles = [Role.SUPER_ADMIN, Role.SHOP_ADMIN, Role.STOREKEEPER];
+/* Inventory management exposes cost prices, margins and stock valuation, and
+ * lets stock be altered by hand. Kept to the admin roles — the UI hides these
+ * screens from Storekeeper and Job Card Manager, and this is what makes that
+ * real rather than cosmetic.
+ *
+ * GET /parts is deliberately NOT restricted: the Sale Invoice screen searches
+ * it to build a bill, so locking it would stop storekeepers invoicing at all. */
+const adminRoles = [Role.SUPER_ADMIN, Role.SHOP_ADMIN];
 
 inventoryRouter.get(
   "/inventory/report",
@@ -51,7 +58,7 @@ inventoryRouter.get(
   "/inventory/reports",
   authenticate,
   enforceShopScope,
-  authorize(allRoles),
+  authorize(adminRoles),
   checkPermission("read"),
   asyncHandler(getInventoryReportsHandler)
 );
@@ -60,7 +67,7 @@ inventoryRouter.post(
   "/inventory/adjust",
   authenticate,
   enforceShopScope,
-  authorize(writeRoles),
+  authorize(adminRoles),
   checkPermission("write"),
   asyncHandler(adjustStockHandler)
 );
@@ -70,7 +77,7 @@ inventoryRouter.post(
   express.json({ limit: "25mb" }),
   authenticate,
   enforceShopScope,
-  authorize(writeRoles),
+  authorize(adminRoles),
   checkPermission("write"),
   asyncHandler(bulkUploadPartsHandler)
 );

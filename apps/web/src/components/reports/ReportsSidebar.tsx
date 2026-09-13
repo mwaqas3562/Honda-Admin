@@ -16,7 +16,6 @@ export const REPORT_NAV: ReportNavItem[] = [
 
   { group: "Sales", label: "Sales Summary", href: "/dashboard/reports/sales", icon: "💰" },
   { group: "Sales", label: "Profit", href: "/dashboard/reports/profit", icon: "📈" },
-  { group: "Sales", label: "Invoices", href: "/dashboard/reports/invoices", icon: "📄" },
   { group: "Sales", label: "Customers", href: "/dashboard/reports/customers", icon: "👤" },
   { group: "Sales", label: "Repeat Customers", href: "/dashboard/reports/repeat-customers", icon: "🔁" },
   { group: "Sales", label: "Daily Cash", href: "/dashboard/reports/daily-cash", icon: "💵" },
@@ -26,7 +25,6 @@ export const REPORT_NAV: ReportNavItem[] = [
   { group: "Operations", label: "Mechanics", href: "/dashboard/reports/mechanics", icon: "🧰" },
 
   { group: "Inventory", label: "Stock On Hand", href: "/dashboard/reports/inventory", icon: "📦" },
-  { group: "Inventory", label: "Stock Movement", href: "/dashboard/reports/stock-movement", icon: "📋" },
   { group: "Inventory", label: "Purchases", href: "/dashboard/reports/purchases", icon: "🛒" },
   { group: "Inventory", label: "Vendors", href: "/dashboard/reports/vendors", icon: "🏭" },
 ];
