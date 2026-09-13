@@ -1,5 +1,6 @@
 "use client";
 
+import { formatNumber } from "@/lib/formatters";
 import AdminOnly from "@/components/AdminOnly";
 import { blockDecimalKeys, blockDecimalPaste } from "@/lib/intInput";
 import { useEffect, useMemo, useState } from "react";
@@ -75,7 +76,7 @@ function InventoryList() {
 
   function reload() {
     setLoading(true);
-    partsApi.list(1, 1000, search.trim() || undefined)
+    partsApi.list(1, 5000, search.trim() || undefined)
       .then((r) => setParts(r.data))
       .finally(() => setLoading(false));
   }
@@ -180,7 +181,7 @@ function InventoryList() {
                 <td className="text-right">{fmt(p.cost)}</td>
                 <td className="text-right">{fmt(p.sell)}</td>
                 <td className="text-right" style={{ color: p.margin >= 0 ? "#0a7a30" : "#9e2020", fontWeight: 600 }}>
-                  {p.margin}
+                  {formatNumber(p.margin, { maximumFractionDigits: 2 })}
                 </td>
                 <td className="text-right" style={{ fontWeight: 600 }}>{p.stockQty}</td>
                 <td className="text-right">{p.minStockLevel}</td>

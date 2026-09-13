@@ -25,7 +25,7 @@ import {
   fetchCustomerBikeHistory,
   fetchRepeatCustomers,
 } from "@/lib/repeat-customers-api";
-import { formatCurrency, formatDate, formatInteger } from "@/lib/formatters";
+import { formatCurrency, formatDate, formatInteger, formatNumber } from "@/lib/formatters";
 import type {
   BikeGroup,
   CustomerBikeHistoryResponse,
@@ -316,7 +316,7 @@ export default function RepeatCustomersPage() {
                   history.summary.bikeCount === 1 ? "" : "s"
                 }`,
                 history.summary.avgGapDays !== null
-                  ? `Avg gap ${history.summary.avgGapDays}d`
+                  ? `Avg gap ${formatNumber(history.summary.avgGapDays, { maximumFractionDigits: 2 })}d`
                   : null,
               ]
                 .filter(Boolean)
@@ -374,7 +374,7 @@ const RepeatRow = memo(function RepeatRow({ row, onView }: RepeatRowProps) {
         {row.lastVisit ? formatDate(row.lastVisit) : "—"}
       </td>
       <td className="px-3 py-1.5 text-right tabular-nums">
-        {row.avgGapDays !== null ? `${row.avgGapDays}d` : "—"}
+        {row.avgGapDays !== null ? `${formatNumber(row.avgGapDays, { maximumFractionDigits: 2 })}d` : "—"}
       </td>
       <td
         className={`px-3 py-1.5 text-right tabular-nums ${

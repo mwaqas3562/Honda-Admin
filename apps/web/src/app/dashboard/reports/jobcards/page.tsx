@@ -19,7 +19,7 @@ import { useReportFilters } from "@/hooks/useReportFilters";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useSortControl } from "@/hooks/useSortControl";
 import { fetchJobCardsReport } from "@/lib/jobcard-report-api";
-import { formatCurrency, formatDate, formatInteger } from "@/lib/formatters";
+import { formatCurrency, formatDate, formatInteger, formatNumber } from "@/lib/formatters";
 import type {
   JobCardReportRow,
   JobCardStatus,
@@ -177,7 +177,7 @@ export default function JobCardsReportPage() {
           label="Avg Turnaround"
           value={
             totals && totals.avgTurnaroundDays !== null
-              ? `${totals.avgTurnaroundDays} d`
+              ? `${formatNumber(totals.avgTurnaroundDays, { maximumFractionDigits: 2 })} d`
               : "—"
           }
           hint="Completed jobs only"

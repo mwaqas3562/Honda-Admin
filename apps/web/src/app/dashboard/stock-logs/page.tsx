@@ -11,7 +11,7 @@ export default function StockLogsPage() {
 
   useEffect(() => {
     fetch(1, 200);
-    fetchParts(1, 500);
+    fetchParts(1, 5000);
   }, [fetch, fetchParts]);
 
   function applyFilter() {

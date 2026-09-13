@@ -31,7 +31,7 @@ export default function PurchaseReportsPage() {
 
   useEffect(() => {
     vendorsApi.list(1, 500).then((r) => setVendors(r.data));
-    partsApi.list(1, 1000).then((r) => setParts(r.data));
+    partsApi.list(1, 5000).then((r) => setParts(r.data));
   }, []);
 
   function load() {

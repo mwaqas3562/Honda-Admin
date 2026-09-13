@@ -69,7 +69,7 @@ function SaleInvoiceInner() {
   const [selectedJob, setSelectedJob] = useState<JobCardData | null>(null);
   /* ── Parts catalogue (for product picker) ──────────────── */
   const { data: partsList, fetch: fetchParts } = useParts();
-  useEffect(() => { fetchParts(1, 500); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { fetchParts(1, 5000); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
   const parts: PartData[] = partsList?.data ?? [];
   const [extraParts, setExtraParts] = useState<PartData[]>([]);
   const [partQuery, setPartQuery] = useState("");
@@ -448,7 +448,7 @@ function SaleInvoiceInner() {
         setSavedNo(inv.invoiceNumber);
         setSavedStatus(inv.status);
         setStatusMsg(`Paid: ${inv.invoiceNumber}. Stock deducted, Job Card auto-completed.`);
-        fetchParts(1, 500);
+        fetchParts(1, 5000);
         setPreviewOpen(true);
         firePrint();
       }
@@ -462,7 +462,7 @@ function SaleInvoiceInner() {
     if (inv) {
       setSavedStatus(inv.status);
       setStatusMsg(`Paid: ${inv.invoiceNumber}. Stock deducted, Job Card auto-completed.`);
-      fetchParts(1, 500);
+      fetchParts(1, 5000);
       setPreviewOpen(true);
       firePrint();
     }

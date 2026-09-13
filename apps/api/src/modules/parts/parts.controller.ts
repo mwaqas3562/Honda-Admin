@@ -6,7 +6,13 @@ import { createPart, getPart, listParts, softDeletePart, updatePart } from "./pa
 
 export async function listPartsHandler(req: Request, res: Response): Promise<void> {
   const shopId = getShopScope(req);
-  const { page, limit } = parsePagination(req, 100);
+  /* Several screens need the whole catalogue in one request — the inventory
+   * list totals stock value across every part, and the invoice screen checks
+   * stock for any part on the bill. The shared 500 cap silently trimmed those
+   * to the first 500, so totals were understated and parts beyond that were
+   * invisible with nothing on screen to say so. Raised here rather than
+   * globally, so the DOS guard still holds on every other endpoint. */
+  const { page, limit } = parsePagination(req, 100, 5000);
   const search = req.query.search ? String(req.query.search) : undefined;
   const result = await listParts(shopId, page, limit, search);
   res.json(result);

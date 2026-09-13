@@ -22,7 +22,7 @@ import {
   fetchMechanicJobs,
   fetchMechanicsReport,
 } from "@/lib/jobcard-report-api";
-import { formatCurrency, formatDate, formatInteger } from "@/lib/formatters";
+import { formatCurrency, formatDate, formatInteger, formatNumber } from "@/lib/formatters";
 import {
   mechanicsApi,
   type MechanicData,
@@ -393,7 +393,7 @@ export default function MechanicsReportPage() {
                       </td>
                       <td className="px-3 py-1.5 text-right tabular-nums">
                         {r.avgTurnaroundDays !== null
-                          ? `${r.avgTurnaroundDays}d`
+                          ? `${formatNumber(r.avgTurnaroundDays, { maximumFractionDigits: 2 })}d`
                           : "—"}
                       </td>
                       <td className="px-3 py-1.5 text-right whitespace-nowrap">

@@ -21,7 +21,7 @@ import {
   listExpenses,
   updateExpense,
 } from "@/lib/expenses-api";
-import { formatCurrency, formatDate } from "@/lib/formatters";
+import { formatCurrency, formatDate, formatNumber } from "@/lib/formatters";
 import { toDateInputValue } from "@/lib/report-filters";
 import {
   CATEGORY_META,
@@ -624,7 +624,7 @@ function CategoryKPI({
         </span>
         {total > 0 && (
           <span className="text-[10px] font-semibold opacity-80">
-            {pct}%
+            {formatNumber(pct, { maximumFractionDigits: 2 })}%
           </span>
         )}
       </div>
