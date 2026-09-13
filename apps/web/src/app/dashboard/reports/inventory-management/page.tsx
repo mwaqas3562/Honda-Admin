@@ -1,21 +1,25 @@
 "use client";
 
+import AdminOnly from "@/components/AdminOnly";
 import { blockDecimalKeys, blockDecimalPaste } from "@/lib/intInput";
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
+import SmartSearch from "@/components/SmartSearch";
+import ExportCSV, { type ExportColumn } from "@/components/reports/ExportCSV";
 import {
   inventoryMgmtApi,
   partsApi,
   stockLogsApi,
   type BulkUploadRow,
   type InventoryReportsData,
+  type InventoryReportRow,
   type PartData,
   type StockLogListResponse,
 } from "@/lib/api";
 
 type Tab = "list" | "bulk" | "adjust" | "reports" | "history";
 
-export default function InventoryManagementPage() {
+function InventoryManagementPageInner() {
   const [tab, setTab] = useState<Tab>("list");
 
   return (
@@ -129,6 +133,25 @@ function InventoryList() {
             <option value="OUT">Out of stock</option>
           </select>
           <span style={{ flex: 1 }} />
+          {/* Exports exactly what is on screen — the active search, filter and
+            * sort all apply, so a "Low stock" view exports only those rows. */}
+          <ExportCSV
+            filename="inventory"
+            rows={rows}
+            label="Export CSV"
+            columns={[
+              { header: "Product", accessor: (r) => r.name },
+              { header: "SKU", accessor: (r) => r.sku },
+              { header: "Cost", accessor: (r) => r.cost },
+              { header: "Sale", accessor: (r) => r.sell },
+              { header: "Margin %", accessor: (r) => r.margin.toFixed(1) },
+              { header: "Stock", accessor: (r) => r.stockQty },
+              { header: "Min Level", accessor: (r) => r.minStockLevel },
+              { header: "Stock Value", accessor: (r) => r.value },
+              { header: "Status", accessor: (r) =>
+                  r.status === "IN" ? "In Stock" : r.status === "LOW" ? "Low Stock" : "Out of Stock" },
+            ]}
+          />
           <button className="erp-btn erp-btn-default" onClick={reload}>Refresh</button>
         </div>
         <table className="erp-table">
@@ -639,8 +662,12 @@ function parseCSVText(text: string): string[][] {
  * 3. STOCK ADJUSTMENT
  * ────────────────────────────────────────────────────── */
 function StockAdjustment() {
-  const [parts, setParts] = useState<PartData[]>([]);
-  const [partId, setPartId] = useState("");
+  /* The product is chosen through a server-side search rather than a preloaded
+   * <select>. The old dropdown fetched the first 1000 parts, so anything beyond
+   * that was simply unselectable, and scrolling a list that long to find one
+   * item was slow besides. */
+  const [selected, setSelected] = useState<PartData | null>(null);
+  const [partQuery, setPartQuery] = useState("");
   const [type, setType] = useState<"ADD" | "REMOVE">("ADD");
   const [qty, setQty] = useState(1);
   const [reason, setReason] = useState("");
@@ -648,11 +675,7 @@ function StockAdjustment() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => {
-    partsApi.list(1, 1000).then((r) => setParts(r.data));
-  }, []);
-
-  const selected = parts.find((p) => p.id === partId);
+  const partId = selected?.id ?? "";
 
   async function submit() {
     setMsg(null); setErr(null);
@@ -662,7 +685,9 @@ function StockAdjustment() {
     try {
       const r = await inventoryMgmtApi.adjust({ partId, type, quantity: qty, reason: reason.trim() });
       setMsg(`Stock updated. ${r.part.name} now ${r.part.stockQty}.`);
-      partsApi.list(1, 1000).then((rr) => setParts(rr.data));
+      /* Keep the part selected so several adjustments can be made in a row,
+       * with the stock line reflecting what just happened. */
+      partsApi.get(partId).then(setSelected).catch(() => {});
       setQty(1); setReason("");
     } catch (e) {
       setErr((e as Error).message);
@@ -676,14 +701,24 @@ function StockAdjustment() {
       <div className="panel-header"><span className="panel-title">Manual Stock Adjustment</span></div>
       <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
         <Field label="Product">
-          <select className="erp-select" value={partId} onChange={(e) => setPartId(e.target.value)}>
-            <option value="">— select —</option>
-            {parts.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.sku}) · stock {p.stockQty}
-              </option>
-            ))}
-          </select>
+          <SmartSearch<PartData>
+            value={partQuery}
+            onChange={setPartQuery}
+            placeholder="Search product by name or SKU…"
+            minChars={1}
+            dropdownMinWidth={520}
+            fetcher={async (q) => (await partsApi.list(1, 25, q.trim())).data}
+            keyOf={(p) => p.id}
+            onPick={(p) => { setSelected(p); setPartQuery(`${p.name} (${p.sku})`); }}
+            showClear
+            onClear={() => { setSelected(null); setPartQuery(""); }}
+            emptyMessage="No matching product."
+            columns={[
+              { label: "Item Name", render: (p) => p.name },
+              { label: "SKU", width: 110, mono: true, render: (p) => p.sku },
+              { label: "Stock", width: 70, align: "right", render: (p) => p.stockQty },
+            ]}
+          />
         </Field>
         {selected && (
           <div style={{ fontSize: 11, color: "#555" }}>
@@ -717,6 +752,17 @@ function StockAdjustment() {
 /* ─────────────────────────────────────────────────────────
  * 4. INVENTORY REPORTS
  * ────────────────────────────────────────────────────── */
+
+/** Supplier-facing columns: what to order and how much, nothing commercial. */
+const REORDER_COLUMNS: ExportColumn<InventoryReportRow>[] = [
+  { header: "Product", accessor: (r) => r.name },
+  { header: "SKU", accessor: (r) => r.sku },
+  { header: "Category", accessor: (r) => r.category ?? "" },
+  { header: "Stock In Hand", accessor: (r) => r.stockQty },
+  { header: "Min Level", accessor: (r) => r.minStockLevel },
+  { header: "Suggested Order Qty", accessor: (r) => Math.max(r.minStockLevel - r.stockQty, 1) },
+  { header: "Status", accessor: (r) => (r.stockQty === 0 ? "Out of Stock" : "Low Stock") },
+];
 function InventoryReports() {
   const [data, setData] = useState<InventoryReportsData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -744,9 +790,28 @@ function InventoryReports() {
         <Stat label="Out of Stock" value={String(data.totals.outOfStockCount)} color="stat-red" />
       </div>
 
+      {/* Everything needing replenishment, in one file to send a supplier.
+        * Deliberately excludes cost and margin — a vendor seeing your buying
+        * price and markup weakens the next negotiation. */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+        <ExportCSV
+          filename="reorder-list"
+          label={`Export Reorder List (${data.outOfStock.length + data.lowStock.length})`}
+          rows={[...data.outOfStock, ...data.lowStock]}
+          columns={REORDER_COLUMNS}
+        />
+        <span style={{ fontSize: 11, color: "#555" }}>
+          Out-of-stock and low-stock items with suggested order quantities.
+        </span>
+      </div>
+
       <div style={{ display: "flex", gap: 8 }}>
         <div className="panel" style={{ flex: 1 }}>
-          <div className="panel-header"><span className="panel-title">Out of Stock ({data.outOfStock.length})</span></div>
+          <div className="panel-header" style={{ gap: 8 }}>
+            <span className="panel-title">Out of Stock ({data.outOfStock.length})</span>
+            <span style={{ flex: 1 }} />
+            <ExportCSV filename="out-of-stock" label="Export" rows={data.outOfStock} columns={REORDER_COLUMNS} />
+          </div>
           <table className="erp-table">
             <thead>
               <tr>
@@ -770,7 +835,11 @@ function InventoryReports() {
         </div>
 
         <div className="panel" style={{ flex: 1 }}>
-          <div className="panel-header"><span className="panel-title">Low Stock ({data.lowStock.length})</span></div>
+          <div className="panel-header" style={{ gap: 8 }}>
+            <span className="panel-title">Low Stock ({data.lowStock.length})</span>
+            <span style={{ flex: 1 }} />
+            <ExportCSV filename="low-stock" label="Export" rows={data.lowStock} columns={REORDER_COLUMNS} />
+          </div>
           <table className="erp-table">
             <thead>
               <tr>
@@ -910,4 +979,12 @@ function Th({
 
 function fmt(n: number) {
   return n.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+export default function InventoryManagementPage() {
+  return (
+    <AdminOnly>
+      <InventoryManagementPageInner />
+    </AdminOnly>
+  );
 }

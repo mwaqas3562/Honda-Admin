@@ -151,20 +151,41 @@ export default function DailyCashReportPage() {
     setSubmitError(null);
     setEditorOpen(true);
   }
-  async function handleSubmit(values: CashEntryFormValues) {
+  async function handleSubmit(list: CashEntryFormValues[]): Promise<number> {
     setSubmitting(true);
     setSubmitError(null);
+    let savedCount = 0;
+    const toPayload = (v: CashEntryFormValues) => ({
+      entryDate: new Date(v.entryDate).toISOString(),
+      type: v.type,
+      amount: Number(v.amount) || 0,
+      notes: v.notes.trim() ? v.notes.trim() : null,
+    });
+
     try {
-      const payload = {
-        entryDate: new Date(values.entryDate).toISOString(),
-        type: values.type,
-        amount: Number(values.amount) || 0,
-        notes: values.notes.trim() ? values.notes.trim() : null,
-      };
       if (editing) {
-        await updateCashEntry(editing.id, payload);
+        await updateCashEntry(editing.id, toPayload(list[0]));
+        savedCount = 1;
       } else {
-        await createCashEntry(payload);
+        /* Saved one at a time: there is no bulk endpoint, and doing them in
+         * sequence means a failure can name the row it stopped on and say how
+         * many were already written — the rows before it are not rolled back. */
+        for (let i = 0; i < list.length; i++) {
+          try {
+            await createCashEntry(toPayload(list[i]));
+          } catch (err) {
+            savedCount = i;
+            setSubmitError(
+              `Entry ${i + 1} failed: ${(err as Error).message}` +
+                (i > 0
+                  ? `\n${i} of ${list.length} ${i === 1 ? "entry was" : "entries were"} saved and have been removed from the list. The rest are still here — fix and save again.`
+                  : "")
+            );
+            setReloadTick((t) => t + 1);
+            return savedCount;
+          }
+        }
+        savedCount = list.length;
       }
       setEditorOpen(false);
       setEditing(null);
@@ -173,9 +194,11 @@ export default function DailyCashReportPage() {
       if (drillDay) openDrill(drillDay);
     } catch (err) {
       setSubmitError((err as Error).message);
+      setReloadTick((t) => t + 1);
     } finally {
       setSubmitting(false);
     }
+    return savedCount;
   }
 
   /* ── Delete ──────────────────────────────────────────── */
@@ -405,7 +428,7 @@ export default function DailyCashReportPage() {
           setEditing(null);
         }}
         title={editing ? "Edit Cash Entry" : "Add Cash Entry"}
-        size="sm"
+        size={editing ? "md" : "xl"}
       >
         <CashEntryForm
           initial={editing}
