@@ -30,7 +30,13 @@ require("dotenv").config();
 const url = process.env.DIRECT_URL || process.env.DATABASE_URL;
 if (!url) { console.error("✗ Set DIRECT_URL (or DATABASE_URL) first."); process.exit(1); }
 
-const prisma = new PrismaClient({ datasources: { db: { url } } });
+/* One connection, patient timeout. The work is sequential, so a larger pool
+ * buys nothing and Supabase's pooler will refuse the extra connections —
+ * which is how the first production run died partway through the job cards. */
+const tuned = url.includes("?")
+  ? `${url}&connection_limit=1&pool_timeout=120`
+  : `${url}?connection_limit=1&pool_timeout=120`;
+const prisma = new PrismaClient({ datasources: { db: { url: tuned } } });
 const DIR = process.env.LEGACY_DIR;
 const DRY = process.env.DRY_RUN === "1";
 const SHOP_CODE = process.env.SHOP_CODE || "HONDA-MAIN";
@@ -45,6 +51,24 @@ function read(file) {
 }
 
 const toInt = (v) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? n : 0; };
+
+/** Supabase's pooler drops a long-running session every so often, which killed
+ *  two production runs partway through. Connection-level failures are retried
+ *  rather than allowed to abort an import that takes over an hour. */
+const TRANSIENT = new Set(["P1001", "P1002", "P1008", "P1017", "P2024"]);
+async function resilient(label, fn, attempts = 6) {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const transient = TRANSIENT.has(e?.code) || /Can't reach database|connection pool|Closed/i.test(e?.message ?? "");
+      if (!transient || i >= attempts) throw e;
+      const wait = Math.min(30000, 2000 * 2 ** (i - 1));
+      console.log(`    … ${label} failed (${e.code ?? "connection"}), retry ${i}/${attempts - 1} in ${wait / 1000}s`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
 
 /** Legacy dates arrive as "2026-09-05 00:00:00" with no zone. `new Date()` reads
  *  that as local time, which on a UTC+5 machine stores it as 19:00 the previous
@@ -187,9 +211,14 @@ async function importHistory(shop) {
    * jobNumber is unique per shop but the legacy data has a handful of
    * repeats, so later duplicates get a suffix rather than being dropped. */
   const jobRows = read("jobcards.psv");
-  const seenJobNo = new Set();
-  const jobIdByNo = new Map();
-  let jc = 0, js = 0, jdup = 0;
+  /* Resume safely: anything already in the database is skipped, and its id is
+   * still needed so invoices can link to it. */
+  const existingJobs = await prisma.jobCard.findMany({
+    where: { shopId: shop.id }, select: { id: true, jobNumber: true },
+  });
+  const seenJobNo = new Set(existingJobs.map((j) => j.jobNumber));
+  const jobIdByNo = new Map(existingJobs.map((j) => [j.jobNumber, j.id]));
+  let jc = 0, js = 0, jdup = 0, jskip = 0;
 
   const mechIdByName = new Map(
     (await prisma.mechanic.findMany({ where: { shopId: shop.id }, select: { id: true, name: true } }))
@@ -197,6 +226,13 @@ async function importHistory(shop) {
   );
 
   for (const [jobNo, jobDate, cell, name, regNo, vehType, engType, meter, nextDue, mechName] of jobRows) {
+    /* Existence is checked before anything is created. Resolving the customer
+     * first would mint a fresh one on every resume, for job cards that are
+     * already imported and about to be skipped. */
+    let jobNumber = jobNo || `LEGACY-${jc + 1}`;
+    if (jobIdByNo.has(jobNumber)) { jskip++; continue; }   // already imported
+    if (seenJobNo.has(jobNumber)) { jdup++; jobNumber = `${jobNumber}-${jdup}`; }
+
     const phone = norm(cell);
     let customerId = custByPhone.get(phone);
     if (!customerId) {
@@ -208,11 +244,9 @@ async function importHistory(shop) {
       customerId = c.id;
       if (phone) custByPhone.set(phone, customerId);
     }
-    let jobNumber = jobNo || `LEGACY-${jc + 1}`;
-    if (seenJobNo.has(jobNumber)) { jdup++; jobNumber = `${jobNumber}-${jdup}`; }
     seenJobNo.add(jobNumber);
 
-    const created = await prisma.jobCard.create({
+    const created = await resilient("job card", () => prisma.jobCard.create({
       data: {
         shopId: shop.id,
         customerId,
@@ -231,11 +265,11 @@ async function importHistory(shop) {
         createdAt: toDate(jobDate),
       },
       select: { id: true },
-    });
+    }));
     jobIdByNo.set(jobNo, created.id);
     jc++;
   }
-  console.log(`  job cards : ${jc} created, ${js} skipped, ${jdup} renamed for duplicate job numbers`);
+  console.log(`  job cards : ${jc} created, ${jskip} already present, ${js} skipped, ${jdup} renamed`);
 
   /* ── Invoices + lines ───────────────────────────────────
    * stockDeducted is set true on purpose: stock levels were already imported
@@ -257,10 +291,16 @@ async function importHistory(shop) {
   }
 
   const invRows = read("invoices.psv");
+  const existingInvoices = new Set(
+    (await prisma.invoice.findMany({ where: { shopId: shop.id }, select: { invoiceNumber: true } }))
+      .map((i) => i.invoiceNumber)
+  );
+  let iskip = 0;
   const walkInKey = "legacy-walkin-customer";
   let walkInId = null;
   let ic = 0, isk = 0, orphanLines = 0, walkIn = 0;
   for (const [invNo, dated, jobNo, cell, discount, cashPaid, remarks] of invRows) {
+    if (existingInvoices.has(invNo)) { iskip++; continue; }
     const lines = linesByInv.get(invNo) || [];
     if (lines.length === 0) { isk++; continue; }
 
@@ -314,7 +354,7 @@ async function importHistory(shop) {
     const totalAmount = subtotal - discountAmt;
     const when = toDate(dated);
 
-    await prisma.invoice.create({
+    await resilient("invoice", () => prisma.invoice.create({
       data: {
         shopId: shop.id, customerId, jobCardId,
         invoiceNumber: invNo,
@@ -328,17 +368,17 @@ async function importHistory(shop) {
         issuedAt: when, createdAt: when,
         items: { create: items },
       },
-    });
+    }));
 
     if (jobCardId) {
-      await prisma.jobCard.update({
+      await resilient("job card totals", () => prisma.jobCard.update({
         where: { id: jobCardId },
         data: { laborAmount: labourTotal, partsAmount: partsTotal, totalAmount },
-      });
+      }));
     }
     ic++;
   }
-  console.log(`  invoices  : ${ic} created, ${isk} skipped (no line items)`);
+  console.log(`  invoices  : ${ic} created, ${iskip} already present, ${isk} skipped (no line items)`);
   console.log(`              ${walkIn} attached to the walk-in customer`);
 
   /* ── Purchases (legacy GRN — goods received notes) ──────
@@ -356,8 +396,13 @@ async function importHistory(shop) {
     plByGrn.get(grn).push({ code, qty, rate, total });
   }
 
-  let pc = 0, psk = 0, plSkipped = 0;
+  const existingPurchases = new Set(
+    (await prisma.purchase.findMany({ where: { shopId: shop.id }, select: { purchaseNo: true } }))
+      .map((x) => x.purchaseNo)
+  );
+  let pc = 0, psk = 0, plSkipped = 0, pskip = 0;
   for (const [grnNo, dated, suppCode, cashPaid, remarks] of read("purchases.psv")) {
+    if (existingPurchases.has(grnNo)) { pskip++; continue; }
     const vendorId = vendorByCode.get(suppCode);
     if (!vendorId) { psk++; continue; }
     const lines = (plByGrn.get(grnNo) || [])
@@ -375,7 +420,7 @@ async function importHistory(shop) {
     if (lines.length === 0) { psk++; continue; }
 
     const when = toDate(dated);
-    await prisma.purchase.create({
+    await resilient("purchase", () => prisma.purchase.create({
       data: {
         shopId: shop.id, vendorId, purchaseNo: grnNo,
         totalCost: lines.reduce((s, l) => s + l.totalPrice, 0),
@@ -384,10 +429,10 @@ async function importHistory(shop) {
         purchasedAt: when, receivedAt: when, createdAt: when,
         items: { create: lines },
       },
-    });
+    }));
     pc++;
   }
-  console.log(`  purchases : ${pc} created, ${psk} skipped (no vendor or no matching lines)`);
+  console.log(`  purchases : ${pc} created, ${pskip} already present, ${psk} skipped (no vendor or lines)`);
   console.log(`              ${plSkipped} lines referenced a part not in the catalogue`);
 
   /* ── Stock movement history ────────────────────────────
@@ -396,7 +441,9 @@ async function importHistory(shop) {
    * legacy ledger is replayed instead. Running balances are recomputed forward
    * per part so each row shows the balance as it stood at that moment.
    * Vtypeid 5 = goods in, 6 = sale out, anything else = adjustment. */
-  const logRows = read("stocklogs.psv");
+  const existingLogs = await prisma.stockLog.count({ where: { shopId: shop.id } });
+  const logRows = existingLogs > 0 ? [] : read("stocklogs.psv");
+  if (existingLogs > 0) console.log(`  stock logs: ${existingLogs} already present, replay skipped`);
   const partIdBySku = new Map([...partBySku.entries()].map(([sku, p]) => [sku, p.id]));
   const balance = new Map();
   const batch = [];
@@ -417,7 +464,8 @@ async function importHistory(shop) {
       createdAt: toDate(dated),
     });
     if (batch.length >= 1000) {
-      await prisma.stockLog.createMany({ data: batch.splice(0, batch.length) });
+      const chunk = batch.splice(0, batch.length);
+      await resilient("stock logs", () => prisma.stockLog.createMany({ data: chunk }));
       lg += 1000;
     }
   }

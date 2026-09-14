@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { invoiceApi, type InvoiceData } from "@/lib/api";
 import InvoiceReceipt, { RECEIPT_CSS } from "@/components/invoice/InvoiceReceipt";
+import { RECEIPT_PAGE_MM, RECEIPT_WIDTH_MM } from "@/lib/receipt-size";
 
 /**
  * Standalone print view. Renders the shared InvoiceReceipt so the printed
@@ -37,12 +38,15 @@ export default function InvoicePrintPage() {
 
   return (
     <>
-      <style jsx global>{`
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         ${RECEIPT_CSS}
 
-        /* ── 80mm roll, laid out at the 72mm printable width (576 dots) ── */
+        /* Paper and printable width both come from receipt-size.ts, measured
+           against the shop's own printer rather than its spec sheet. */
         @page {
-          size: 72mm auto;
+          size: ${RECEIPT_PAGE_MM}mm auto;
           margin: 0;
         }
         @media print {
@@ -50,9 +54,26 @@ export default function InvoicePrintPage() {
             margin: 0 !important;
             padding: 0 !important;
             background: #fff !important;
-            width: 72mm !important;
+            width: ${RECEIPT_PAGE_MM}mm !important;
           }
           .no-print { display: none !important; }
+
+          /* This route sits under /dashboard, so it inherits the app shell.
+             Printed as-is the sidebar takes most of the paper and squeezes the
+             receipt into a column a few characters wide. Strip the chrome and
+             let the receipt own the page. */
+          .sidebar, .topbar { display: none !important; }
+          .erp-shell, .erp-main, .erp-content {
+            display: block !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: ${RECEIPT_PAGE_MM}mm !important;
+            min-width: 0 !important;
+            max-width: none !important;
+            background: #fff !important;
+            overflow: visible !important;
+          }
+
           .receipt {
             margin: 0 !important;
             box-shadow: none !important;
@@ -68,7 +89,9 @@ export default function InvoicePrintPage() {
           background: #003a80; color: #fff; border: none;
           cursor: pointer; border-radius: 3px;
         }
-      `}</style>
+      `,
+        }}
+      />
 
       {!embed && (
         <button className="print-btn no-print" onClick={() => window.print()}>

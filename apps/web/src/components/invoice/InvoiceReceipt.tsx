@@ -2,15 +2,22 @@
 
 import { useMemo } from "react";
 import type { InvoiceData, InvoiceItemData } from "@/lib/api";
+import { RECEIPT_WIDTH_MM, RECEIPT_SIDE_PAD_MM } from "@/lib/receipt-size";
 
 type Props = {
   inv: InvoiceData;
 };
 
+const money = (n: number) => Math.round(n).toLocaleString("en-US");
+
 /**
- * Pure 80mm thermal-receipt renderer. No fetching, no print triggers.
- * Single source of truth for the printed bill — used by the print page and
- * by the in-app preview modal, so the two cannot drift apart.
+ * Thermal receipt, laid out to match the bill the workshop printed from its
+ * previous software: centred shop block, bill number and date on one line,
+ * Parts and Z.Labour sections each under a dashed rule, and right-aligned
+ * totals.
+ *
+ * Single source of truth for the printed bill — used by the print page and the
+ * in-app preview, so the two cannot drift apart.
  */
 export default function InvoiceReceipt({ inv }: Props) {
   const { parts, labour } = useMemo(() => {
@@ -23,7 +30,9 @@ export default function InvoiceReceipt({ inv }: Props) {
     return { parts: p, labour: l };
   }, [inv]);
 
-  const date = new Date(inv.createdAt).toLocaleDateString("en-GB");
+  const date = new Date(inv.createdAt).toLocaleDateString("en-GB", {
+    day: "2-digit", month: "short", year: "2-digit",
+  });
   const subtotal = Math.round(Number(inv.subtotal) + Number(inv.discountAmt));
   const discountAmt = Math.round(Number(inv.discountAmt));
   const total = Math.round(Number(inv.totalAmount));
@@ -33,188 +42,149 @@ export default function InvoiceReceipt({ inv }: Props) {
   const shopPhone = inv.shop?.phone ?? "";
   const meterReading = inv.jobCard?.meterReading ?? null;
 
+  const rows = (items: InvoiceItemData[]) =>
+    items.map((it) => (
+      <tr key={it.id}>
+        <td className="item-name">{it.itemName}</td>
+        <td className="num">{Number(it.qty)}</td>
+        <td className="num">{money(Number(it.rate))}</td>
+        <td className="num">{money(Number(it.total))}</td>
+      </tr>
+    ));
+
   return (
     <div className="receipt">
       {/* Shop identity */}
-      <div className="center shop-name">{shopName}</div>
-      {shopAddress && <div className="center shop-sub">{shopAddress}</div>}
-      {shopPhone && <div className="center shop-sub">Ph: {shopPhone}</div>}
+      <div className="shop-name">{shopName}</div>
+      {shopAddress && <div className="shop-sub">{shopAddress}</div>}
+      {shopPhone && <div className="shop-sub ph">Ph. {shopPhone}</div>}
 
       <hr className="dashed" />
 
       {/* Bill meta */}
-      <div className="row">
-        <span>Bill No.:</span>
-        <span className="bold">{inv.invoiceNumber}</span>
-      </div>
-      <div className="row">
-        <span>Date:</span>
-        <span>{date}</span>
-      </div>
-      {meterReading != null && (
-        <div className="row">
-          <span>Meter Reading:</span>
-          <span>{meterReading} KM</span>
+      <div className="meta">
+        <div className="meta-row">
+          <span><b>Bill No.</b> {inv.invoiceNumber}</span>
+          <span><b>Date</b> {date}</span>
         </div>
-      )}
-      {inv.jobCard?.vehicleRegNo && (
-        <div className="row">
-          <span>Reg#:</span>
-          <span>{inv.jobCard.vehicleRegNo}</span>
-        </div>
-      )}
-      <div className="row">
-        <span>Customer:</span>
-        <span>{inv.customer?.name ?? "Walk-in"}</span>
+        {meterReading != null && (
+          <div className="meta-row">
+            <span><b>Meter</b> {money(meterReading)} KM</span>
+          </div>
+        )}
+        {inv.jobCard?.vehicleRegNo && (
+          <div className="meta-row"><span><b>Reg#</b> {inv.jobCard.vehicleRegNo}</span></div>
+        )}
+        <div className="meta-row"><span><b>Customer</b> {inv.customer?.name ?? "Walk-in"}</span></div>
       </div>
-      {inv.cellNo && (
-        <div className="row">
-          <span>Cell:</span>
-          <span>{inv.cellNo}</span>
-        </div>
-      )}
 
-      {/* Parts */}
-      {parts.length > 0 && (
-        <>
-          <div className="section-title">Parts</div>
-          <table className="lines parts">
-            <colgroup>
-              <col />
-              <col style={{ width: "7mm" }} />
-              <col style={{ width: "13mm" }} />
-              <col style={{ width: "15mm" }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th className="num">Qty</th>
-                <th className="num">Rate</th>
-                <th className="num">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {parts.map((it) => (
-                <tr key={it.id}>
-                  <td className="item-name">{it.itemName}</td>
-                  <td className="num">{Number(it.qty)}</td>
-                  <td className="num">{Math.round(Number(it.rate))}</td>
-                  <td className="num">{Math.round(Number(it.total))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
+      {/* Line items */}
+      <table className="lines">
+        <colgroup>
+          <col />
+          <col style={{ width: "7mm" }} />
+          <col style={{ width: "12mm" }} />
+          <col style={{ width: "13mm" }} />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th className="num">Qty</th>
+            <th className="num">Rate</th>
+            <th className="num">Total</th>
+          </tr>
+        </thead>
 
-      {/* Labour */}
-      {labour.length > 0 && (
-        <>
-          <div className="section-title">Z.Labour</div>
-          <table className="lines labour">
-            <colgroup>
-              <col />
-              <col style={{ width: "18mm" }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th>Description</th>
-                <th className="num">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {labour.map((it) => (
-                <tr key={it.id}>
-                  <td className="item-name">
-                    {it.itemName}
-                    {it.remarks ? <div className="muted">{it.remarks}</div> : null}
-                  </td>
-                  <td className="num">{Math.round(Number(it.total))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
+        {parts.length > 0 && (
+          <tbody>
+            <tr className="section"><td colSpan={4}>Parts</td></tr>
+            {rows(parts)}
+          </tbody>
+        )}
+
+        {labour.length > 0 && (
+          <tbody>
+            <tr className="section"><td colSpan={4}>Z.Labour</td></tr>
+            {rows(labour)}
+          </tbody>
+        )}
+      </table>
+
+      <hr className="dotted" />
 
       {/* Totals */}
-      <hr className="dashed" />
-      <div className="totals">
-        <div className="row">
-          <span>Sub Total</span>
-          <span>{subtotal}</span>
-        </div>
-        <div className="row">
-          <span>Discount</span>
-          <span>{discountAmt > 0 ? `-${discountAmt}` : "0"}</span>
-        </div>
-        <div className="row grand">
-          <span>Grand Total</span>
-          <span>{total}</span>
-        </div>
-      </div>
+      <table className="totals">
+        <tbody>
+          <tr><td>Sub Total</td><td className="num">{money(subtotal)}</td></tr>
+          <tr><td>Discount</td><td className="num">{discountAmt > 0 ? money(discountAmt) : "0"}</td></tr>
+          <tr className="grand"><td>Grand Total</td><td className="num">{money(total)}</td></tr>
+        </tbody>
+      </table>
 
       <div className="footer" dir="rtl" lang="ur">آپ کی تشریف آوری کا شکریہ</div>
     </div>
   );
 }
 
-/* Shared receipt CSS — 80mm roll, 72mm printable area (576 dots @ 203dpi).
- *
- * The page is laid out at 72mm, the *printable* width, not 80mm, the paper
- * width. The print head only covers 72mm, so a wider layout is either clipped
- * at the right edge — which is what turned "Total" into "Tota" and 670 into
- * 67C on earlier bills — or silently shrunk by the browser's fit-to-page
- * scaling, which makes the text smaller than intended. Matching the printable
- * width exactly avoids both.
- *
- * `table-layout: fixed` keeps a long part name from pushing the number
- * columns past that edge. */
+/* Receipt CSS. Width comes from receipt-size.ts, measured against the shop's
+ * own printer rather than a spec sheet — see that file for why. */
 export const RECEIPT_CSS = `
-* { box-sizing: border-box; }
+.receipt * { box-sizing: border-box; }
 .receipt {
-  width: 72mm;
+  width: ${RECEIPT_WIDTH_MM}mm;
   margin: 0 auto;
-  padding: 3mm 1.5mm;
+  padding: 2mm ${RECEIPT_SIDE_PAD_MM}mm;
   background: #fff;
-  font-family: "Courier New", "Consolas", monospace;
-  font-size: 10px;
-  line-height: 1.3;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-size: 8.5px;
+  line-height: 1.35;
   color: #000;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
-.receipt .center { text-align: center; }
-.receipt .bold { font-weight: 700; }
-.receipt .muted { color: #555; font-size: 9px; }
-.receipt .shop-name { font-size: 13px; font-weight: 700; letter-spacing: 0.3px; }
-.receipt .shop-sub { font-size: 9px; line-height: 1.25; }
-.receipt .dashed { border: 0; border-top: 1px dashed #000; margin: 3px 0; }
-.receipt .row { display: flex; justify-content: space-between; gap: 4px; }
-.receipt .section-title { text-align: center; font-weight: 700; margin: 3px 0 1px; font-size: 10px; }
-.receipt table.lines {
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: collapse;
-  font-size: 9.5px;
+.receipt .shop-name {
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.2px;
 }
-.receipt table.lines th, .receipt table.lines td { padding: 1px 0; vertical-align: top; }
-.receipt table.lines th { border-bottom: 1px dashed #000; font-weight: 700; text-align: left; }
+.receipt .shop-sub { text-align: center; font-size: 8px; line-height: 1.3; }
+.receipt .shop-sub.ph { margin-top: 1mm; }
+.receipt .dashed { border: 0; border-top: 1px dashed #000; margin: 1.6mm 0; }
+.receipt .dotted { border: 0; border-top: 1px dotted #000; margin: 1.6mm 0; }
+
+.receipt .meta { font-size: 9px; }
+.receipt .meta-row { display: flex; justify-content: space-between; gap: 3mm; padding: 0.3mm 0; }
+.receipt .meta-row b { font-weight: 700; }
+
+.receipt table.lines { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 1.4mm; }
+.receipt table.lines th {
+  border-top: 1px solid #000; border-bottom: 1px solid #000;
+  font-weight: 700; text-align: left; padding: 0.7mm 0; font-size: 9px;
+}
+.receipt table.lines td { padding: 0.55mm 0; vertical-align: top; }
 .receipt table.lines td.num, .receipt table.lines th.num { text-align: right; white-space: nowrap; }
-.receipt .item-name { word-break: break-word; overflow-wrap: anywhere; }
-.receipt .totals { margin-top: 3px; font-size: 10px; }
-.receipt .grand { font-size: 11.5px; font-weight: 700; margin-top: 2px; }
+.receipt .item-name { word-break: break-word; overflow-wrap: anywhere; padding-right: 1mm; }
+.receipt tr.section td {
+  font-weight: 700; font-size: 9px;
+  padding-top: 1.6mm; padding-bottom: 0.6mm;
+  border-bottom: 1px dashed #000;
+}
+
+.receipt table.totals { width: 100%; border-collapse: collapse; font-size: 9.5px; margin-top: 0.6mm; }
+.receipt table.totals td { padding: 0.5mm 0; font-weight: 700; }
+.receipt table.totals td.num { text-align: right; white-space: nowrap; }
+.receipt table.totals tr.grand td { font-size: 10.5px; padding-top: 1mm; }
+
 .receipt .footer {
   text-align: center;
-  margin-top: 6px;
-  /* Courier/Consolas carry no Urdu glyphs — fall back through the
-   * Nastaliq faces shipped on Windows POS machines, then any Arabic-capable
-   * system font, so the line never renders as empty boxes. */
+  margin-top: 3mm;
   font-family: "Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", "Urdu Typesetting",
                "Segoe UI", Tahoma, Arial, sans-serif;
   direction: rtl;
   unicode-bidi: isolate;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.9;
 }
 `;
