@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import type { InvoiceData, InvoiceItemData } from "@/lib/api";
-import { RECEIPT_WIDTH_MM, RECEIPT_SIDE_PAD_MM } from "@/lib/receipt-size";
+import { RECEIPT_WIDTH_MM, RECEIPT_SIDE_PAD_MM, RECEIPT_LEFT_MM } from "@/lib/receipt-size";
 
 type Props = {
   inv: InvoiceData;
@@ -132,7 +132,9 @@ export const RECEIPT_CSS = `
 .receipt * { box-sizing: border-box; }
 .receipt {
   width: ${RECEIPT_WIDTH_MM}mm;
-  margin: 0 auto;
+  /* Left-aligned at the head's printable origin, not centred: centring splits
+     any width error across both edges, which is what lost the left column. */
+  margin: 0 0 0 ${RECEIPT_LEFT_MM}mm;
   padding: 2mm ${RECEIPT_SIDE_PAD_MM}mm;
   background: #fff;
   font-family: "Helvetica Neue", Arial, sans-serif;
