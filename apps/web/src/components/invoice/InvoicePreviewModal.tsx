@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoiceApi, type InvoiceData } from "@/lib/api";
 import InvoiceReceipt, { RECEIPT_CSS } from "./InvoiceReceipt";
+import { RECEIPT_PAGE_MM, RECEIPT_WIDTH_MM } from "@/lib/receipt-size";
 import InvoiceModernView from "./InvoiceModernView";
 
 type Props = {
@@ -81,14 +82,17 @@ export default function InvoicePreviewModal({
         /* Hide the thermal receipt on screen — it only exists for printing. */
         #ipm-print-area { display: none; }
         @media print {
-          @page { size: 72mm auto; margin: 0; }
+          @page { size: ${RECEIPT_PAGE_MM}mm auto; margin: 0; }
           body.ipm-printing * { visibility: hidden !important; }
+          /* belt and braces: the shell is hidden outright, not just made
+           * invisible, so it cannot reserve space on the page */
+          body.ipm-printing .sidebar, body.ipm-printing .topbar { display: none !important; }
           body.ipm-printing #ipm-print-area, body.ipm-printing #ipm-print-area * { visibility: visible !important; }
           body.ipm-printing #ipm-print-area {
             display: block !important;
             position: absolute !important;
             left: 0 !important; top: 0 !important;
-            width: 72mm !important;
+            width: ${RECEIPT_WIDTH_MM}mm !important;
             margin: 0 !important; padding: 0 !important;
             background: #fff !important;
           }
