@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoiceApi, type InvoiceData } from "@/lib/api";
 import InvoiceReceipt, { RECEIPT_CSS } from "./InvoiceReceipt";
-import { RECEIPT_PAGE_MM } from "@/lib/receipt-size";
+import { RECEIPT_PAGE_MM, RECEIPT_WIDTH_MM } from "@/lib/receipt-size";
 import InvoiceModernView from "./InvoiceModernView";
 
 type Props = {
@@ -92,13 +92,11 @@ export default function InvoicePreviewModal({
             display: block !important;
             position: absolute !important;
             left: 0 !important; top: 0 !important;
-            width: ${RECEIPT_PAGE_MM}mm !important;
+            width: ${RECEIPT_WIDTH_MM}mm !important;
             margin: 0 !important; padding: 0 !important;
             background: #fff !important;
           }
-          /* Only the shadow goes. The receipt's own left margin is what clears
-             the print head's dead zone, so it must survive. */
-          body.ipm-printing #ipm-print-area .receipt { box-shadow: none !important; }
+          body.ipm-printing #ipm-print-area .receipt { box-shadow: none !important; margin: 0 !important; }
         }
       `}</style>
 
