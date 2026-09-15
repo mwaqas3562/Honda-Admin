@@ -3,9 +3,11 @@ import { BusinessError } from "../../shared/errors/business-error";
 import { prisma } from "../../config/prisma";
 import type { CreatePartInput, UpdatePartInput } from "./parts.schema";
 
-/** Upper bound on rows pulled in for ranking, so a one-letter query cannot
- *  drag the whole catalogue into memory. */
-const RANK_CANDIDATE_CAP = 500;
+/** Ranking needs every match in hand to sort them, so the cap has to clear the
+ *  largest page any caller asks for — the Inventory Management report requests
+ *  5,000. A cap below that silently drops parts from the report while `total`
+ *  still counts them, which is exactly the bug that once hid 715 parts. */
+const RANK_CANDIDATE_CAP = 10000;
 
 const partSelect = {
   id: true,
@@ -56,7 +58,9 @@ export async function listParts(shopId: string, page = 1, limit = 100, search?: 
    * 2,000-part catalogue to a handful. The cap stops a single-letter query
    * from pulling the whole table into memory. */
   const candidates = await prisma.part.findMany({
-    where, select: partSelect, orderBy: { createdAt: "desc" }, take: RANK_CANDIDATE_CAP,
+    where, select: partSelect, orderBy: { createdAt: "desc" },
+    /* Take one more than the page needs so a truncated set can be detected. */
+    take: Math.max(RANK_CANDIDATE_CAP, skip + limit),
   });
   const total = await prisma.part.count({ where });
 

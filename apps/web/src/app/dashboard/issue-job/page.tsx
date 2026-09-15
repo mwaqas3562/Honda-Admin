@@ -46,6 +46,10 @@ export default function IssueJobPage() {
 
   const [form, setForm] = useState<FormState>(empty);
   const customerNameRef = useRef<HTMLInputElement>(null);
+  /* The customer as loaded. Sending name/phone on every save would rewrite the
+     shared customer record — and every other card and bill of theirs — even
+     when only the job title changed. */
+  const loadedCustomer = useRef<{ name: string; phone: string } | null>(null);
   const [serviceSearch, setServiceSearch] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [recent, setRecent] = useState<JobCardData[]>([]);
@@ -104,6 +108,7 @@ export default function IssueJobPage() {
     (form.isFinal || form.invoiceId != null || form.status === "COMPLETED" || form.status === "CANCELLED");
 
   function reset() {
+    loadedCustomer.current = null;
     setForm(empty);
     setMsg(null);
     setLookupQuery("");
@@ -146,6 +151,7 @@ export default function IssueJobPage() {
   }
 
   function pickRow(j: JobCardData) {
+    loadedCustomer.current = { name: j.customer.name, phone: j.customer.phone ?? "" };
     setForm({
       id: j.id,
       jobNumber: j.jobNumber,
@@ -190,8 +196,10 @@ export default function IssueJobPage() {
         mechanicId: form.mechanicId || null,
         /* Correcting a mistyped name or number updates the customer the card
            points at — see updateJobCard on the API side. */
-        ...(form.customerName.trim() && { customerName: form.customerName.trim() }),
-        ...(form.cellNo.trim() && { customerPhone: form.cellNo.trim() }),
+        ...(form.customerName.trim() && form.customerName.trim() !== loadedCustomer.current?.name
+          && { customerName: form.customerName.trim() }),
+        ...(form.cellNo.trim() && form.cellNo.trim() !== loadedCustomer.current?.phone
+          && { customerPhone: form.cellNo.trim() }),
       };
       const r = await update(form.id, updatePayload);
       if (r) {
@@ -223,9 +231,17 @@ export default function IssueJobPage() {
   /* A job card exists to be billed, so a row in the list goes straight to its
    * bill: the invoice if one was raised, otherwise a new one for this card. */
   function openBill(j: JobCardData) {
-    router.push(j.invoice
-      ? `/dashboard/sale-invoice?invoiceId=${j.invoice.id}`
-      : `/dashboard/sale-invoice?jobCardId=${j.id}`);
+    if (j.invoice) {
+      router.push(`/dashboard/sale-invoice?invoiceId=${j.invoice.id}`);
+      return;
+    }
+    /* The API refuses to invoice a closed card, so opening a blank bill here
+       would only fail after the whole thing had been keyed in. */
+    if (j.status === "COMPLETED" || j.status === "CANCELLED") {
+      setMsg(`${j.jobNumber} is ${j.status.toLowerCase()} and has no invoice — it cannot be billed.`);
+      return;
+    }
+    router.push(`/dashboard/sale-invoice?jobCardId=${j.id}`);
   }
 
   function generateInvoice() {

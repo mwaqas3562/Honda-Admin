@@ -616,6 +616,9 @@ export type CreateJobCardPayload = {
 
 /** Note: status is system-controlled; not editable from the client. */
 export type UpdateJobCardPayload = {
+  /** Corrects the linked customer record — see updateJobCard on the API. */
+  customerName?: string;
+  customerPhone?: string;
   title?: string;
   description?: string;
   vehicleRegNo?: string;

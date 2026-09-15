@@ -43,14 +43,17 @@ const STATUS_META: Record<JobCardStatus, { label: string; tone: BadgeTone }> = {
 };
 
 /** "15 Sep 2026, 02:35 PM" — date and clock time, since two bills on the same
- *  day are told apart by the time. */
+ *  day are told apart by the time. en-GB renders a lowercase "pm", so the
+ *  meridiem is upper-cased to match the rest of the report's casing. */
 function formatPaidAt(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-GB", {
-    day: "2-digit", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit", hour12: true,
-  }).replace(",", ",");
+  return d
+    .toLocaleString("en-GB", {
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", hour12: true,
+    })
+    .replace(/\b(am|pm)\b/i, (m) => m.toUpperCase());
 }
 
 export default function JobCardsReportPage() {
@@ -147,9 +150,15 @@ export default function JobCardsReportPage() {
      table already shows, while the invoice carries the actual line items. */
   const router = useRouter();
   const openBill = useCallback((r: JobCardReportRow) => {
-    router.push(r.invoice
-      ? `/dashboard/sale-invoice?invoiceId=${r.invoice.id}`
-      : `/dashboard/sale-invoice?jobCardId=${r.id}`);
+    if (r.invoice) {
+      router.push(`/dashboard/sale-invoice?invoiceId=${r.invoice.id}`);
+      return;
+    }
+    /* This report lists every status. The API refuses to invoice a closed
+       card, so sending the user to a blank bill would only fail after the
+       whole thing had been keyed in. */
+    if (r.status === "COMPLETED" || r.status === "CANCELLED") return;
+    router.push(`/dashboard/sale-invoice?jobCardId=${r.id}`);
   }, [router]);
 
   return (
@@ -339,8 +348,14 @@ export default function JobCardsReportPage() {
                           <button
                             type="button"
                             onClick={() => openBill(r)}
-                            className="text-[11px] text-[var(--accent)] hover:underline"
-                            title={r.invoice ? `Open ${r.invoice.invoiceNumber}` : "Raise a bill for this job card"}
+                            disabled={!r.invoice && (r.status === "COMPLETED" || r.status === "CANCELLED")}
+                            className="text-[11px] text-[var(--accent)] hover:underline disabled:text-[var(--text-muted)] disabled:no-underline disabled:cursor-not-allowed"
+                            title={
+                              r.invoice ? `Open ${r.invoice.invoiceNumber}`
+                                : r.status === "COMPLETED" || r.status === "CANCELLED"
+                                  ? `${r.jobNumber} is ${meta.label.toLowerCase()} and has no invoice — it cannot be billed.`
+                                  : "Raise a bill for this job card"
+                            }
                           >
                             View
                           </button>

@@ -209,6 +209,8 @@ function SaleInvoiceInner() {
         if (j) selectJob(j);
       }
       setInvSearch("");
+      /* Everything the signature covers is now in state. */
+      setBaselinePending(true);
     } catch (e: unknown) {
       setStatusMsg(e instanceof Error ? e.message : "Failed to load invoice.");
     }
@@ -310,19 +312,22 @@ function SaleInvoiceInner() {
   const [savedSignature, setSavedSignature] = useState<string | null>(null);
   const hasUnsavedChanges = savedSignature !== null && savedSignature !== formSignature;
 
-  /* Opening an existing bill must not read as unsaved. The guard makes this
-     fire once per invoice, so edits afterwards still register as changes. */
-  const signedForId = useRef<string | null>(null);
+  /* Opening an existing bill must not read as unsaved.
+     Keying this on savedId alone was wrong: applyLoadedInvoice sets savedId
+     and commits, but the job card is fetched afterwards, so the baseline was
+     taken while selectedJob was still null and every loaded bill then looked
+     edited — which left Mark as Paid disabled forever. The load now says
+     explicitly when it has finished. */
+  const [baselinePending, setBaselinePending] = useState(false);
   useEffect(() => {
-    if (savedId && signedForId.current !== savedId) {
-      signedForId.current = savedId;
-      setSavedSignature(formSignature);
-    }
-    if (!savedId) {
-      signedForId.current = null;
-      setSavedSignature(null);
-    }
-  }, [savedId, formSignature]);
+    if (!baselinePending) return;
+    setSavedSignature(formSignature);
+    setBaselinePending(false);
+  }, [baselinePending, formSignature]);
+
+  useEffect(() => {
+    if (!savedId) setSavedSignature(null);
+  }, [savedId]);
 
   /* ── Money math ──────────────────────────────────────────── */
   const partItems   = useMemo(() => items.filter((i) => !!i.partId), [items]);
@@ -1059,6 +1064,11 @@ function SaleInvoiceInner() {
                       {new Date(a.issuedAt ?? a.createdAt).toLocaleDateString("en-GB",
                         { day: "2-digit", month: "short", year: "2-digit" })}
                       {" · "}{a.invoiceNumber}
+                      {/* The history matches on customer OR vehicle, so advice
+                          about their other bike can appear here. Naming the
+                          registration keeps it from reading as advice about
+                          the bike on this bill. */}
+                      {a.jobCard?.vehicleRegNo && ` · ${a.jobCard.vehicleRegNo}`}
                       {a.jobCard?.meterReading != null && ` · ${a.jobCard.meterReading.toLocaleString()} KM`}
                     </span>
                     <span>{a.notes}</span>

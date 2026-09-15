@@ -164,12 +164,18 @@ function PurchaseScreen() {
     setVendorId(po.vendorId);
     setVendorLabel(po.vendor?.name ?? "");
     setNotes(po.notes ?? "");
+    /* Cash Paid and Sales Tax are part of what was entered; without these a
+       saved purchase showed a Total built from whatever was typed before. */
+    setCashPaid(0);
+    setSalesTax(0);
     setItems(po.items.map((i) => ({
       rowId: i.id,
       partId: i.partId,
       sku: i.part?.sku ?? "",
       name: i.part?.name ?? "",
-      stockQty: 0,
+      /* Stock on hand is not part of the purchase record; the column reads
+         "—" rather than a made-up zero. */
+      stockQty: -1,
       qty: i.receivedQty || i.quantity,
       rate: Number(i.costPrice),
       total: Math.round((i.receivedQty || i.quantity) * Number(i.costPrice)),
@@ -181,13 +187,23 @@ function PurchaseScreen() {
   /* Opened by id, the way Sale Invoice opens a bill with ?invoiceId. */
   useEffect(() => {
     const id = searchParams.get("purchaseId");
-    if (!id) { setOpenedPurchase(null); return; }
+    if (!id) {
+      /* Navigating away from a saved purchase — Back, or Close — must clear
+         its lines too. Leaving them behind re-enabled every input over a
+         record that had already posted its stock, and Save would have entered
+         the whole delivery a second time. */
+      setOpenedPurchase((prev) => { if (prev) resetAll(); return null; });
+      return;
+    }
+    /* Already showing it (we just put the id in the URL ourselves). */
+    if (openedPurchase?.id === id) return;
     let cancelled = false;
     purchasesApi.get(id)
       .then((po) => { if (!cancelled) applyPurchase(po); })
       .catch((e) => { if (!cancelled) setErr((e as Error).message); });
     return () => { cancelled = true; };
-  }, [searchParams, applyPurchase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, applyPurchase, openedPurchase?.id]);
 
   /* Opening from the search box puts the id in the URL, so the view survives a
      refresh and the link can be shared the way a bill's can. */
@@ -400,8 +416,8 @@ function PurchaseScreen() {
                           fontWeight: 600,
                         }}
                       >
-                        {p.stockQty}
-                        {p.stockQty <= p.minStockLevel ? " \u26A0" : ""}
+                        {p.stockQty < 0 ? "\u2014" : p.stockQty}
+                        {p.stockQty >= 0 && p.stockQty <= p.minStockLevel ? " \u26A0" : ""}
                       </span>
                     ),
                   },
@@ -481,6 +497,7 @@ function PurchaseScreen() {
                         type="number"
                         min={1}
                         value={it.qty}
+                        disabled={viewing}
                         onKeyDown={blockDecimalKeys}
                         onPaste={blockDecimalPaste}
                         onFocus={(e) => e.target.select()}
@@ -495,6 +512,7 @@ function PurchaseScreen() {
                         min={0}
                         step={0.01}
                         value={it.rate}
+                        disabled={viewing}
                         onFocus={(e) => e.target.select()}
                         onChange={(e) => updateItem(it.rowId, "rate", e.target.value)}
                         style={{ width: 80, textAlign: "right", padding: "1px 4px", fontSize: 11 }}
@@ -532,6 +550,7 @@ function PurchaseScreen() {
                 min={0}
                 step={1}
                 value={cashPaid}
+                disabled={viewing}
                 onChange={(e) => setCashPaid(Number(e.target.value))}
                 onFocus={(e) => e.target.select()}
               />
@@ -545,6 +564,7 @@ function PurchaseScreen() {
                 min={0}
                 step={1}
                 value={salesTax}
+                disabled={viewing}
                 onChange={(e) => setSalesTax(Number(e.target.value))}
                 onFocus={(e) => e.target.select()}
               />

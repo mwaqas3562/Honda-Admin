@@ -547,6 +547,10 @@ export async function updateInvoice(
         ...(input.notes !== undefined && { notes: input.notes }),
         ...(input.status && {
           status: input.status,
+          /* Voiding restores stock and reverses the payment, so the bill must
+           * stop claiming it was paid — otherwise any report trusting paidAt
+           * counts money that was given back. */
+          ...(transitioningToVoid ? { paidAt: null } : {}),
           ...(transitioningToPaid
             ? {
                 issuedAt: input.entryDate ? new Date(input.entryDate) : new Date(),
@@ -738,6 +742,12 @@ export async function getAdviceHistory(shopId: string, jobCardId: string, limit 
       shopId,
       isDeleted: false,
       notes: { not: null },
+      /* Blank-but-present notes exist: clearing a saved note stores "".
+       * Excluding them here rather than after the fetch stops ten blank rows
+       * from consuming the limit and hiding real advice below them. */
+      NOT: { notes: { in: ["", " "] } },
+      /* Advice on a reversed bill is not history worth quoting back. */
+      status: { not: "VOID" },
       /* The bill being written is not its own history. */
       jobCardId: { not: jobCardId },
       OR: or,
