@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useInvoiceSave } from "@/hooks/useInvoice";
 import { useParts } from "@/hooks/useInventory";
-import { jobCardsApi, partsApi, servicesApi, invoiceApi, type InvoiceData, type JobCardData, type PartData, type ServiceData } from "@/lib/api";
+import { jobCardsApi, partsApi, servicesApi, invoiceApi, type AdviceHistoryEntry, type InvoiceData, type JobCardData, type PartData, type ServiceData } from "@/lib/api";
 import SmartSearch from "@/components/SmartSearch";
 import InvoicePreviewModal from "@/components/invoice/InvoicePreviewModal";
 
@@ -108,6 +108,14 @@ function SaleInvoiceInner() {
   /* What was recommended and what the customer declined. Kept on the bill so a
      later complaint can be checked against the advice given at the time. */
   const [notes, setNotes] = useState("");
+  /* Notes as last persisted, so a paid bill can still have its note corrected
+     without the money fields unlocking. */
+  const [savedNotes, setSavedNotes] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
+  const notesDirty = notes.trim() !== savedNotes.trim();
+
+  /* What this vehicle or customer was told before. */
+  const [advice, setAdvice] = useState<AdviceHistoryEntry[]>([]);
 
   /* ── Refs for keyboard navigation in parts entry ─────── */
   const partSearchRef = useRef<HTMLInputElement | null>(null);
@@ -169,6 +177,7 @@ function SaleInvoiceInner() {
     setJobDetail(inv.jobDetail ?? "");
     setCellNo(inv.cellNo ?? "");
     setNotes(inv.notes ?? "");
+    setSavedNotes(inv.notes ?? "");
     setMeterReading(inv.jobCard?.meterReading != null ? String(inv.jobCard.meterReading) : "");
     setItems(
       inv.items.map((i) => {
@@ -261,6 +270,29 @@ function SaleInvoiceInner() {
     setJcSearch("");
     setCellNo("");
     setJobDetail("");
+  }
+
+  /* Pull prior advice whenever the job card changes, so it is on screen while
+     the bill is being written rather than only after a complaint. */
+  useEffect(() => {
+    const jobId = selectedJob?.id;
+    if (!jobId) { setAdvice([]); return; }
+    let cancelled = false;
+    invoiceApi.adviceHistory(jobId)
+      .then((r) => { if (!cancelled) setAdvice(r.data ?? []); })
+      .catch(() => { if (!cancelled) setAdvice([]); });
+    return () => { cancelled = true; };
+  }, [selectedJob?.id]);
+
+  async function saveNotesOnly() {
+    if (!savedId) return;
+    setSavingNotes(true);
+    try {
+      const inv = await update(savedId, { notes: notes.trim() });
+      if (inv) { setSavedNotes(notes.trim()); setStatusMsg("Notes saved."); }
+    } finally {
+      setSavingNotes(false);
+    }
   }
 
   /* ── Unsaved-change tracking ─────────────────────────────────
@@ -1000,12 +1032,40 @@ function SaleInvoiceInner() {
               id="si-notes-field"
               className="si-input"
               value={notes}
-              readOnly={isView}
               maxLength={2000}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="e.g. Advised to replace clutch plates — customer declined."
               rows={4}
             />
+            {isView && (
+              /* The bill is locked, but advice is often written up after the
+                 customer has left — so this one field keeps its own save. */
+              <button
+                type="button"
+                className="si-foot-btn"
+                onClick={saveNotesOnly}
+                disabled={!notesDirty || savingNotes}
+                style={{ alignSelf: "flex-start", marginTop: 2 }}
+              >
+                {savingNotes ? "Saving…" : notesDirty ? "💾 Save Notes" : "Notes saved"}
+              </button>
+            )}
+            {advice.length > 0 && (
+              <details className="si-advice">
+                <summary>Previously advised ({advice.length})</summary>
+                {advice.map((a) => (
+                  <div key={a.id} className="si-advice-row">
+                    <span className="si-advice-when">
+                      {new Date(a.issuedAt ?? a.createdAt).toLocaleDateString("en-GB",
+                        { day: "2-digit", month: "short", year: "2-digit" })}
+                      {" · "}{a.invoiceNumber}
+                      {a.jobCard?.meterReading != null && ` · ${a.jobCard.meterReading.toLocaleString()} KM`}
+                    </span>
+                    <span>{a.notes}</span>
+                  </div>
+                ))}
+              </details>
+            )}
           </div>
           <div className="si-summary">
             <div className="si-sum-row">

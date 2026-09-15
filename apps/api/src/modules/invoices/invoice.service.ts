@@ -708,3 +708,47 @@ export async function softDeleteInvoice(id: string, shopId: string) {
     return result;
   }, { maxWait: 15000, timeout: 30000 });
 }
+
+
+/**
+ * Advice recorded on this vehicle's or this customer's earlier bills.
+ *
+ * The point of invoice notes is the return visit — a customer comes back
+ * complaining about the brakes, and the shop needs to show they were told.
+ * Finding that by opening old bills one at a time defeats the purpose, so the
+ * history comes back with the job card.
+ *
+ * Matched on the vehicle first and the customer second: a bike may change
+ * hands, and a customer may own several.
+ */
+export async function getAdviceHistory(shopId: string, jobCardId: string, limit = 10) {
+  const jobCard = await prisma.jobCard.findFirst({
+    where: { id: jobCardId, shopId, isDeleted: false },
+    select: { id: true, customerId: true, vehicleRegNo: true },
+  });
+  if (!jobCard) return [];
+
+  const or: Prisma.InvoiceWhereInput[] = [{ customerId: jobCard.customerId }];
+  if (jobCard.vehicleRegNo) {
+    or.push({ jobCard: { vehicleRegNo: { equals: jobCard.vehicleRegNo, mode: "insensitive" } } });
+  }
+
+  const rows = await prisma.invoice.findMany({
+    where: {
+      shopId,
+      isDeleted: false,
+      notes: { not: null },
+      /* The bill being written is not its own history. */
+      jobCardId: { not: jobCardId },
+      OR: or,
+    },
+    select: {
+      id: true, invoiceNumber: true, notes: true, createdAt: true, issuedAt: true,
+      jobCard: { select: { vehicleRegNo: true, meterReading: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+
+  return rows.filter((r) => (r.notes ?? "").trim().length > 0);
+}

@@ -126,7 +126,19 @@ export type UpdateInvoicePayload = {
 };
 
 /* ─── Invoice API calls ──────────────────────────────────── */
+export type AdviceHistoryEntry = {
+  id: string;
+  invoiceNumber: string;
+  notes: string | null;
+  createdAt: string;
+  issuedAt: string | null;
+  jobCard: { vehicleRegNo: string | null; meterReading: number | null } | null;
+};
+
 export const invoiceApi = {
+  /** What this vehicle's or customer's earlier bills recorded as advice. */
+  adviceHistory: (jobCardId: string) =>
+    apiFetch<{ data: AdviceHistoryEntry[] }>(`/invoices/advice-history?jobCardId=${encodeURIComponent(jobCardId)}`),
   list: (page = 1, limit = 50, q?: string) => {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
     if (q && q.trim()) params.set("q", q.trim());
