@@ -185,7 +185,14 @@ export default function IssueJobPage() {
     };
 
     if (form.id) {
-      const updatePayload = { ...basePayload, mechanicId: form.mechanicId || null };
+      const updatePayload = {
+        ...basePayload,
+        mechanicId: form.mechanicId || null,
+        /* Correcting a mistyped name or number updates the customer the card
+           points at — see updateJobCard on the API side. */
+        ...(form.customerName.trim() && { customerName: form.customerName.trim() }),
+        ...(form.cellNo.trim() && { customerPhone: form.cellNo.trim() }),
+      };
       const r = await update(form.id, updatePayload);
       if (r) {
         setMsg(`Updated ${r.jobNumber}`);
@@ -275,6 +282,18 @@ export default function IssueJobPage() {
           <div className="panel-header"><span className="panel-title">Customer Information</span></div>
           <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
             <Field label="Reg. No. (Vehicle)">
+              {form.id ? (
+                /* Editing an existing card: this is the bike's registration,
+                   not a lookup. Searching here would offer to load a different
+                   job card, which is not what Edit is for. */
+                <input
+                  className="erp-input"
+                  value={form.vehicleRegNo}
+                  disabled={locked}
+                  onChange={(e) => setForm((f) => ({ ...f, vehicleRegNo: e.target.value.toUpperCase() }))}
+                  placeholder="Vehicle registration"
+                />
+              ) : (
               <SmartSearch<JobCardData>
                 value={lookupQuery || form.vehicleRegNo}
                 onChange={(q) => {
@@ -330,19 +349,20 @@ export default function IssueJobPage() {
                   if (customerNameRef.current) customerNameRef.current.focus();
                 }}
               />
+              )}
             </Field>
             <Field label="Customer Name">
               <input
                 className="erp-input"
                 ref={customerNameRef}
                 value={form.customerName}
-                disabled={locked || !!form.customerId || form.id != null}
+                disabled={locked || (!form.id && !!form.customerId)}
                 onChange={(e) => setForm({ ...form, customerName: e.target.value })}
               />
             </Field>
             <Field label="Cell No.">
               <input className="erp-input" value={form.cellNo}
-                disabled={locked || !!form.customerId || form.id != null}
+                disabled={locked || (!form.id && !!form.customerId)}
                 maxLength={11}
                 onChange={(e) => setForm({ ...form, cellNo: e.target.value.slice(0, 11) })} />
             </Field>

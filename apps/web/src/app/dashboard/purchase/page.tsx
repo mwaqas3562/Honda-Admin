@@ -1,7 +1,7 @@
 "use client";
 
 import { blockDecimalKeys, blockDecimalPaste } from "@/lib/intInput";
-import { useMemo, useState, useEffect, useRef, Suspense } from "react";
+import { useMemo, useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -70,6 +70,7 @@ function PurchaseScreen() {
      editing one would need the movement reversed and re-applied — a different
      job from this screen, which exists to enter new stock. */
   const [openedPurchase, setOpenedPurchase] = useState<PurchaseData | null>(null);
+  const [poSearch, setPoSearch] = useState("");
   const viewing = openedPurchase !== null;
 
   const partSearchRef = useRef<HTMLInputElement | null>(null);
@@ -156,33 +157,45 @@ function PurchaseScreen() {
     );
   }
 
+  /* One path into the read-only view, shared by ?purchaseId and the search box,
+     so both always show the same thing. */
+  const applyPurchase = useCallback((po: PurchaseData) => {
+    setOpenedPurchase(po);
+    setVendorId(po.vendorId);
+    setVendorLabel(po.vendor?.name ?? "");
+    setNotes(po.notes ?? "");
+    setItems(po.items.map((i) => ({
+      rowId: i.id,
+      partId: i.partId,
+      sku: i.part?.sku ?? "",
+      name: i.part?.name ?? "",
+      stockQty: 0,
+      qty: i.receivedQty || i.quantity,
+      rate: Number(i.costPrice),
+      total: Math.round((i.receivedQty || i.quantity) * Number(i.costPrice)),
+    })));
+    setErr(null);
+    setMsg(null);
+  }, []);
+
   /* Opened by id, the way Sale Invoice opens a bill with ?invoiceId. */
   useEffect(() => {
     const id = searchParams.get("purchaseId");
     if (!id) { setOpenedPurchase(null); return; }
     let cancelled = false;
     purchasesApi.get(id)
-      .then((po) => {
-        if (cancelled) return;
-        setOpenedPurchase(po);
-        setVendorId(po.vendorId);
-        setVendorLabel(po.vendor?.name ?? "");
-        setNotes(po.notes ?? "");
-        setItems(po.items.map((i) => ({
-          rowId: i.id,
-          partId: i.partId,
-          sku: i.part?.sku ?? "",
-          name: i.part?.name ?? "",
-          stockQty: 0,
-          qty: i.receivedQty || i.quantity,
-          rate: Number(i.costPrice),
-          total: Math.round((i.receivedQty || i.quantity) * Number(i.costPrice)),
-        })));
-        setErr(null);
-      })
+      .then((po) => { if (!cancelled) applyPurchase(po); })
       .catch((e) => { if (!cancelled) setErr((e as Error).message); });
     return () => { cancelled = true; };
-  }, [searchParams]);
+  }, [searchParams, applyPurchase]);
+
+  /* Opening from the search box puts the id in the URL, so the view survives a
+     refresh and the link can be shared the way a bill's can. */
+  function openPurchase(po: PurchaseData) {
+    setPoSearch("");
+    applyPurchase(po);
+    router.replace(`/dashboard/purchase?purchaseId=${po.id}`);
+  }
 
   /* Leaving the view means dropping ?purchaseId too, or the effect reloads it. */
   function startNewPurchase() {
@@ -262,6 +275,51 @@ function PurchaseScreen() {
         <Link href="/dashboard/reports/purchases" className="erp-btn erp-btn-default">
           Purchase Reports →
         </Link>
+      </div>
+
+      {/* Open an existing purchase, the way Sale Invoice opens a bill. */}
+      <div className="si-row" style={{
+        background: "#f8fafc", padding: "6px 8px", borderRadius: 4,
+        border: "1px solid #d6e0ec", marginTop: 6, display: "flex", alignItems: "center", gap: 8,
+      }}>
+        <label className="si-lbl" style={{ width: 120, color: "#0050a0", fontWeight: 700 }}>
+          Search Purchase
+        </label>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <SmartSearch<PurchaseData>
+            value={poSearch}
+            onChange={setPoSearch}
+            fetcher={async (q, signal) => {
+              const term = q.trim();
+              if (!term) return [];
+              const r = await purchasesApi.list(1, 30, { search: term });
+              if (signal.aborted) return [];
+              return r.data;
+            }}
+            columns={[
+              { label: "PO #", width: 120, mono: true, render: (po) => po.purchaseNo },
+              { label: "Supplier", width: "1.2fr", render: (po) => po.vendor?.name ?? "—" },
+              { label: "Items", width: 70, align: "right", render: (po) => String(po.items?.length ?? 0) },
+              { label: "Total", width: 100, align: "right", mono: true,
+                render: (po) => Number(po.totalCost).toLocaleString() },
+              { label: "Status", width: 90, render: (po) => po.status },
+              { label: "Date", width: 95, mono: true,
+                render: (po) => new Date(po.purchasedAt).toLocaleDateString("en-GB",
+                  { day: "2-digit", month: "short", year: "2-digit" }) },
+            ]}
+            keyOf={(po) => po.id}
+            onPick={openPurchase}
+            placeholder="Type PO number or supplier name…"
+            inputClassName="erp-input"
+            width="100%"
+            dropdownMinWidth={620}
+          />
+        </div>
+        {viewing && (
+          <button className="erp-btn erp-btn-default" type="button" onClick={startNewPurchase}>
+            ✕ Close
+          </button>
+        )}
       </div>
 
       <div className="panel" style={{ marginTop: 6 }}>

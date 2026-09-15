@@ -183,7 +183,7 @@ export async function updateJobCard(
 ) {
   const existing = await prisma.jobCard.findFirst({
     where: { id, shopId, isDeleted: false },
-    select: { id: true, status: true, isFinal: true, invoice: { select: { id: true } } },
+    select: { id: true, status: true, isFinal: true, customerId: true, invoice: { select: { id: true } } },
   });
   if (!existing) return null;
   if (existing.invoice) {
@@ -214,6 +214,20 @@ export async function updateJobCard(
   } else if (input.mechanicAssigned !== undefined) {
     // Legacy free-text update path — only honoured when no mechanicId was sent.
     mechanicUpdate.mechanicAssigned = input.mechanicAssigned || null;
+  }
+
+  /* A job card references a customer rather than storing a name, so fixing the
+   * name or number here edits that customer record — and therefore every other
+   * card and bill of theirs. That is the right behaviour for a typo, which is
+   * what this is for; it is not a way to move a card to a different person. */
+  if (input.customerName !== undefined || input.customerPhone !== undefined) {
+    await prisma.customer.update({
+      where: { id: existing.customerId },
+      data: {
+        ...(input.customerName !== undefined && { name: input.customerName.trim() }),
+        ...(input.customerPhone !== undefined && { phone: input.customerPhone.trim() || null }),
+      },
+    });
   }
 
   return prisma.jobCard.update({

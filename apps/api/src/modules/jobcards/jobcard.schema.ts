@@ -34,6 +34,10 @@ export const updateJobCardSchema = z.object({
   meterReading: z.number().int().nonnegative().optional(),
   mechanicId: z.string().nullable().optional(),
   mechanicAssigned: z.string().optional(),
+  /* Correcting a mistyped name or number on the card corrects the customer it
+   * points at — the job card holds no name of its own. */
+  customerName: z.string().min(1).optional(),
+  customerPhone: z.string().min(1).optional(),
 });
 
 /** Finalise locks the card so it can be invoiced. Once true, never reverts. */
