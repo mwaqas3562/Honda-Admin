@@ -43,6 +43,17 @@ const STATUS_META: Record<JobCardStatus, { label: string; tone: BadgeTone }> = {
   CANCELLED: { label: "Cancelled", tone: "red" },
 };
 
+/** "15 Sep 2026, 02:35 PM" — date and clock time, since two bills on the same
+ *  day are told apart by the time. */
+function formatPaidAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: true,
+  }).replace(",", ",");
+}
+
 export default function JobCardsReportPage() {
   const filters = useReportFilters("today");
   const debouncedSearch = useDebouncedValue(filters.search, 250);
@@ -120,6 +131,10 @@ export default function JobCardsReportPage() {
       {
         header: "Turnaround (days)",
         accessor: (r) => (r.turnaroundDays ?? "") as number | "",
+      },
+      {
+        header: "Paid At",
+        accessor: (r) => (r.invoice?.paidAt ? formatPaidAt(r.invoice.paidAt) : ""),
       },
       { header: "Invoice", accessor: (r) => r.invoice?.invoiceNumber ?? "" },
     ],
@@ -259,6 +274,7 @@ export default function JobCardsReportPage() {
                     <SortableTH align="right" sortKey="total" activeKey={sortBy} direction={sortDir} onSort={onHeaderSort}>Total</SortableTH>
                     <SortableTH align="right">Age</SortableTH>
                     <SortableTH align="right" sortKey="turnaround" activeKey={sortBy} direction={sortDir} onSort={onHeaderSort}>Turnaround</SortableTH>
+                    <SortableTH>Paid At</SortableTH>
                     <SortableTH align="right">Action</SortableTH>
                   </tr>
                 </thead>
@@ -309,6 +325,11 @@ export default function JobCardsReportPage() {
                           {r.turnaroundDays !== null
                             ? `${r.turnaroundDays}d`
                             : "—"}
+                        </td>
+                        {/* The moment payment was taken, not the bill's date —
+                            the two differ whenever a bill is back-dated. */}
+                        <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-muted)]">
+                          {r.invoice?.paidAt ? formatPaidAt(r.invoice.paidAt) : "—"}
                         </td>
                         <td className="px-3 py-1.5 text-right">
                           <button

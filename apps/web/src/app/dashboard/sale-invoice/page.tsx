@@ -105,6 +105,9 @@ function SaleInvoiceInner() {
   const [invSearch, setInvSearch] = useState("");
   const invSearchResultsRef = useRef<InvoiceData[]>([]);
   const [meterReading, setMeterReading] = useState("");
+  /* What was recommended and what the customer declined. Kept on the bill so a
+     later complaint can be checked against the advice given at the time. */
+  const [notes, setNotes] = useState("");
 
   /* ── Refs for keyboard navigation in parts entry ─────── */
   const partSearchRef = useRef<HTMLInputElement | null>(null);
@@ -165,6 +168,7 @@ function SaleInvoiceInner() {
     setDate(toDateInput(inv.createdAt));
     setJobDetail(inv.jobDetail ?? "");
     setCellNo(inv.cellNo ?? "");
+    setNotes(inv.notes ?? "");
     setMeterReading(inv.jobCard?.meterReading != null ? String(inv.jobCard.meterReading) : "");
     setItems(
       inv.items.map((i) => {
@@ -266,10 +270,10 @@ function SaleInvoiceInner() {
      at every edit site, which is one edit away from being wrong. */
   const formSignature = useMemo(() => JSON.stringify({
     job: selectedJob?.id ?? null,
-    date, jobDetail, cellNo, saleTerm, meterReading,
+    date, jobDetail, cellNo, saleTerm, meterReading, notes,
     discountAmt, cashRcv,
     items: items.map((i) => [i.partId, i.itemName, i.qty, i.rate, i.remarks]),
-  }), [selectedJob, date, jobDetail, cellNo, saleTerm, meterReading, discountAmt, cashRcv, items]);
+  }), [selectedJob, date, jobDetail, cellNo, saleTerm, meterReading, notes, discountAmt, cashRcv, items]);
 
   const [savedSignature, setSavedSignature] = useState<string | null>(null);
   const hasUnsavedChanges = savedSignature !== null && savedSignature !== formSignature;
@@ -394,6 +398,7 @@ function SaleInvoiceInner() {
       jobDetail,
       cellNo,
       saleTerm,
+      notes: notes.trim() || undefined,
       discountPct: pct,
       paidAmount: cashRcv,
       status: asPaid ? ("PAID" as const) : ("DRAFT" as const),
@@ -430,6 +435,7 @@ function SaleInvoiceInner() {
         jobDetail,
         cellNo,
         saleTerm,
+        notes: notes.trim(),
         discountPct: pct,
         paidAmount: cashRcv,
         status: "DRAFT",
@@ -986,6 +992,21 @@ function SaleInvoiceInner() {
 
         {/* Bottom totals */}
         <div className="si-bottom">
+          <div className="si-notes">
+            <label className="si-sum-lbl" htmlFor="si-notes-field" style={{ textAlign: "left" }}>
+              Notes / advice given to customer
+            </label>
+            <textarea
+              id="si-notes-field"
+              className="si-input"
+              value={notes}
+              readOnly={isView}
+              maxLength={2000}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g. Advised to replace clutch plates — customer declined."
+              rows={4}
+            />
+          </div>
           <div className="si-summary">
             <div className="si-sum-row">
               <span className="si-sum-lbl">Parts Total</span>

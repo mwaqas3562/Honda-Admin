@@ -3,6 +3,10 @@ import { BusinessError } from "../../shared/errors/business-error";
 import { prisma } from "../../config/prisma";
 import type { CreatePartInput, UpdatePartInput } from "./parts.schema";
 
+/** Upper bound on rows pulled in for ranking, so a one-letter query cannot
+ *  drag the whole catalogue into memory. */
+const RANK_CANDIDATE_CAP = 500;
+
 const partSelect = {
   id: true,
   shopId: true,
@@ -34,11 +38,74 @@ export async function listParts(shopId: string, page = 1, limit = 100, search?: 
     }),
   };
 
-  const [data, total] = await Promise.all([
-    prisma.part.findMany({ where, select: partSelect, orderBy: { createdAt: "desc" }, skip, take: limit }),
-    prisma.part.count({ where }),
-  ]);
-  return { data, total, page, limit };
+  /* No search term: the plain catalogue listing, newest first. */
+  if (!tokens.length) {
+    const [data, total] = await Promise.all([
+      prisma.part.findMany({ where, select: partSelect, orderBy: { createdAt: "desc" }, skip, take: limit }),
+      prisma.part.count({ where }),
+    ]);
+    return { data, total, page, limit };
+  }
+
+  /* Searching is ranked rather than ordered by age, because "cd 70 brake"
+   * should surface the brake shoe the shop fits every week, not whichever
+   * matching part was typed into the catalogue most recently.
+   *
+   * Ranking happens here rather than in SQL because the score blends three
+   * things the database cannot compare directly, and a search narrows the
+   * 2,000-part catalogue to a handful. The cap stops a single-letter query
+   * from pulling the whole table into memory. */
+  const candidates = await prisma.part.findMany({
+    where, select: partSelect, orderBy: { createdAt: "desc" }, take: RANK_CANDIDATE_CAP,
+  });
+  const total = await prisma.part.count({ where });
+
+  /* How often each candidate has actually been sold — the usage signal. */
+  const usage = new Map<string, number>();
+  if (candidates.length) {
+    const rows = await prisma.invoiceItem.groupBy({
+      by: ["partId"],
+      where: { partId: { in: candidates.map((c) => c.id) } },
+      _count: { partId: true },
+    });
+    for (const r of rows) if (r.partId) usage.set(r.partId, r._count.partId);
+  }
+
+  const scored = candidates
+    .map((part) => {
+      const name = part.name.toLowerCase();
+      const sku = (part.sku ?? "").toLowerCase();
+
+      /* Relevance dominates: a weak match should never outrank a strong one
+       * on popularity alone. */
+      let relevance = 0;
+      for (const token of tokens) {
+        const tk = token.toLowerCase();
+        if (sku === tk) relevance += 100;
+        else if (name === tk) relevance += 90;
+        else if (sku.startsWith(tk)) relevance += 60;
+        else if (name.startsWith(tk)) relevance += 50;
+        else if (new RegExp(`\\b${tk.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(name)) relevance += 35;
+        else relevance += 15;
+      }
+
+      /* Log-scaled so a part sold 500 times beats one sold 50, without
+       * swamping relevance the way a raw count would. */
+      const popularity = Math.log10(1 + (usage.get(part.id) ?? 0)) * 15;
+
+      /* Stock is the tie-breaker the shop asked for: among equally good
+       * matches, offer what is actually on the shelf. Out of stock sinks. */
+      const availability = part.stockQty > 0 ? Math.min(part.stockQty, 50) * 0.1 : -8;
+
+      return { part, score: relevance + popularity + availability, used: usage.get(part.id) ?? 0 };
+    })
+    .sort((a, b) =>
+      b.score - a.score ||
+      b.used - a.used ||
+      b.part.stockQty - a.part.stockQty ||
+      a.part.name.localeCompare(b.part.name));
+
+  return { data: scored.slice(skip, skip + limit).map((s) => s.part), total, page, limit };
 }
 
 export async function getPart(id: string, shopId: string) {

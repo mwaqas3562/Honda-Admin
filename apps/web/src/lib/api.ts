@@ -57,6 +57,8 @@ export type InvoiceData = {
   jobDetail: string | null;
   cellNo: string | null;
   saleTerm: string;
+  notes: string | null;
+  paidAt: string | null;
   subtotal: string;
   discountPct: string;
   discountAmt: string;
@@ -93,6 +95,7 @@ export type CreateInvoicePayload = {
   jobDetail?: string;
   cellNo?: string;
   saleTerm?: string;
+  notes?: string;
   discountPct?: number;
   paidAmount?: number;
   /** When "PAID", stock auto-deducts and the linked Job Card auto-completes. */
@@ -115,6 +118,7 @@ export type UpdateInvoicePayload = {
   jobDetail?: string;
   cellNo?: string;
   saleTerm?: string;
+  notes?: string;
   discountPct?: number;
   paidAmount?: number;
   status?: "DRAFT" | "ISSUED" | "PARTIAL" | "PAID" | "VOID";

@@ -30,6 +30,8 @@ const invoiceSelect = {
   status: true,
   stockDeducted: true,
   issuedAt: true,
+  paidAt: true,
+  notes: true,
   createdAt: true,
   updatedAt: true,
   customer: { select: { id: true, name: true, phone: true } },
@@ -80,6 +82,8 @@ const invoiceListSelect = {
   status: true,
   stockDeducted: true,
   issuedAt: true,
+  paidAt: true,
+  notes: true,
   createdAt: true,
   updatedAt: true,
   customer: { select: { id: true, name: true, phone: true } },
@@ -378,6 +382,7 @@ export async function createInvoice(
         jobDetail: input.jobDetail ?? null,
         cellNo: input.cellNo ?? null,
         saleTerm: input.saleTerm,
+        notes: input.notes ?? null,
         subtotal,
         discountPct: input.discountPct,
         discountAmt,
@@ -388,6 +393,9 @@ export async function createInvoice(
         status: input.status,
         /* A back-dated bill is issued on its own date, not today. */
         issuedAt: input.status === "PAID" ? (entryDate ?? new Date()) : null,
+        /* paidAt is the clock, not the calendar: when the money was actually
+         * taken. It stays put even if the bill is later re-dated. */
+        paidAt: input.status === "PAID" ? new Date() : null,
         ...(entryDate && { createdAt: entryDate }),
         createdById: userId,
         items: {
@@ -536,10 +544,14 @@ export async function updateInvoice(
         ...(input.jobDetail !== undefined && { jobDetail: input.jobDetail }),
         ...(input.cellNo !== undefined && { cellNo: input.cellNo }),
         ...(input.saleTerm && { saleTerm: input.saleTerm }),
+        ...(input.notes !== undefined && { notes: input.notes }),
         ...(input.status && {
           status: input.status,
           ...(transitioningToPaid
-            ? { issuedAt: input.entryDate ? new Date(input.entryDate) : new Date() }
+            ? {
+                issuedAt: input.entryDate ? new Date(input.entryDate) : new Date(),
+                paidAt: new Date(),
+              }
             : input.status === "PAID" && input.entryDate
               /* Re-dating an already-paid bill moves issuedAt too, so the
                * sales report and the dashboard trend keep agreeing. */

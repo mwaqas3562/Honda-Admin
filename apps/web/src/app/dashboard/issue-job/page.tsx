@@ -287,21 +287,32 @@ export default function IssueJobPage() {
                   if (!term) return [];
                   const r = await jobCardsApi.list(1, 30, undefined, term);
                   if (signal.aborted) return [];
+                  /* The server already matches reg no, customer name and
+                   * phone. Keep reg-no and phone hits so a returning customer
+                   * can be found by the number they call from. */
                   const lower = term.toLowerCase();
-                  return r.data.filter(
-                    (j) => (j.vehicleRegNo ?? "").toLowerCase().includes(lower),
-                  );
+                  const digits = term.replace(/\D/g, "");
+                  return r.data.filter((j) => {
+                    const reg = (j.vehicleRegNo ?? "").toLowerCase();
+                    const phone = (j.customer.phone ?? "").replace(/\D/g, "");
+                    return reg.includes(lower) || (digits.length >= 3 && phone.includes(digits));
+                  });
                 }}
                 columns={[
-                  { label: "Reg No", width: 130, mono: true, render: (j) => j.vehicleRegNo ?? "—" },
+                  { label: "Reg No", width: 120, mono: true, render: (j) => j.vehicleRegNo ?? "—" },
                   { label: "Customer", width: "1.2fr", render: (j) => j.customer.name },
-                  { label: "Phone", width: 120, mono: true, render: (j) => j.customer.phone ?? "—" },
-                  { label: "Last Job", width: 160, mono: true, render: (j) => j.jobNumber },
+                  { label: "Phone", width: 115, mono: true, render: (j) => j.customer.phone ?? "—" },
+                  /* Several visits can share a reg no or a phone; the date is
+                   * what tells them apart. */
+                  { label: "Date", width: 90, mono: true,
+                    render: (j) => new Date(j.createdAt).toLocaleDateString("en-GB",
+                      { day: "2-digit", month: "short", year: "2-digit" }) },
+                  { label: "Last Job", width: 110, mono: true, render: (j) => j.jobNumber },
                 ]}
                 keyOf={(j) => j.id}
                 onPick={(j) => pickPreviousJob(j)}
                 onClear={() => pickPreviousJob(null)}
-                placeholder="Type vehicle reg to auto-fill existing customer…"
+                placeholder="Type vehicle reg or mobile number…"
                 disabled={locked || form.id != null}
                 inputClassName="erp-input"
                 width="100%"
