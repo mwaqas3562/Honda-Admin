@@ -110,12 +110,12 @@ export async function getOverviewHandler(req: Request, res: Response): Promise<v
   const [salesAggCur, salesAggPrev] = await Promise.all([
     prisma.invoice.aggregate({
       where: { ...salesWhere, ...inRange("createdAt") },
-      _sum: { totalAmount: true },
+      _sum: { totalAmount: true, totalCost: true, totalProfit: true },
       _count: { _all: true },
     }),
     prisma.invoice.aggregate({
       where: { ...salesWhere, ...inPrev("createdAt") },
-      _sum: { totalAmount: true },
+      _sum: { totalAmount: true, totalCost: true, totalProfit: true },
     }),
   ]);
   const salesRevenue = toNum(salesAggCur._sum.totalAmount);
@@ -154,9 +154,22 @@ export async function getOverviewHandler(req: Request, res: Response): Promise<v
   const servicesRevenue = toNum(svcAggCur._sum.laborAmount);
   const servicesRevenuePrev = toNum(svcAggPrev._sum.laborAmount);
 
-  /* ── Gross Profit = Sales - Purchase Costs (proxy COGS) ─ */
-  const grossProfit = salesRevenue + servicesRevenue - purchaseCosts;
-  const grossProfitPrev = salesRevenuePrev + servicesRevenuePrev - purchaseCostsPrev;
+  /* ── Gross Profit = Sales - cost of what was sold ──────
+   *
+   * Previously this was `sales + services - purchaseCosts`, which was wrong
+   * twice over. Purchases are stock bought, not stock sold: a day with a
+   * delivery booked a loss even when every bill on it was profitable — one
+   * ₨408,312 delivery turned a ₨13,413 profit into a ₨332,887 loss, while
+   * that same stock still sat in the Inventory Value tile beside it. And
+   * labour was counted twice, being inside Invoice.totalAmount already and
+   * added again as servicesRevenue.
+   *
+   * Invoice.totalProfit is revenue minus the per-line cost captured at the
+   * moment of sale, so it stays correct even when a part's cost is edited
+   * later. It is what the Profit report has always used. */
+  const grossProfit = toNum(salesAggCur._sum.totalProfit);
+  const grossProfitPrev = toNum(salesAggPrev._sum.totalProfit);
+  const costOfGoodsSold = toNum(salesAggCur._sum.totalCost);
 
   /* ── CHART: daily sales trend (line) ─────────────────── */
   const dailyInvoices = await prisma.invoice.findMany({
@@ -291,6 +304,9 @@ export async function getOverviewHandler(req: Request, res: Response): Promise<v
       grossProfit: {
         value: Math.floor(grossProfit),
         trendPct: trendPct(grossProfit, grossProfitPrev),
+        /* Shows the working, so the figure can be checked at a glance rather
+           than taken on trust. */
+        hint: `sales less ${Math.floor(costOfGoodsSold).toLocaleString()} cost of goods sold`,
       },
       lowStockCount: {
         value: lowStockCount,
