@@ -3,6 +3,7 @@
 import AdminOnly from "@/components/AdminOnly";
 import { blockDecimalKeys, blockDecimalPaste } from "@/lib/intInput";
 import { useEffect, useState } from "react";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useParts } from "@/hooks/useInventory";
 import type { PartData } from "@/lib/api";
 
@@ -18,13 +19,29 @@ type FormState = {
 
 const empty: FormState = { id: null, name: "", sku: "", costPrice: "", sellingPrice: "", stockQty: "0", minStockLevel: "0" };
 
+/* The catalogue runs to thousands of parts; a page is what the table shows at
+   once, not what the shop owns. */
+const PAGE_SIZE = 100;
+
 function PartsPageInner() {
   const { data, loading, error, saving, fetch, create, update } = useParts();
   const [form, setForm] = useState<FormState>(empty);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [msg, setMsg] = useState<string | null>(null);
+  const debouncedSearch = useDebouncedValue(search, 250);
 
-  useEffect(() => { fetch(1, 100); }, [fetch]);
+  /* Search runs on the server. Filtering the loaded page in the browser meant
+     only the 100 newest parts could ever be found — a search for anything
+     older answered "No parts", which reads as "it does not exist" rather than
+     "it was not loaded". */
+  useEffect(() => {
+    fetch(page, PAGE_SIZE, debouncedSearch.trim() || undefined);
+  }, [fetch, page, debouncedSearch]);
+
+  /* A new search starts from the first page, or page 4 of the old results
+     would be requested for the new term. */
+  useEffect(() => { setPage(1); }, [debouncedSearch]);
 
   function pickRow(row: PartData) {
     setForm({
@@ -55,14 +72,14 @@ function PartsPageInner() {
     const r = form.id
       ? await update(form.id, { name: payload.name, sku: payload.sku, costPrice: payload.costPrice, sellingPrice: payload.sellingPrice, minStockLevel: payload.minStockLevel })
       : await create(payload);
-    if (r) { setMsg(form.id ? "Part updated." : "Part created."); reset(); fetch(1, 100); }
+    if (r) { setMsg(form.id ? "Part updated." : "Part created."); reset(); fetch(page, PAGE_SIZE, debouncedSearch.trim() || undefined); }
   }
 
-  const rows = (data?.data ?? []).filter((p) =>
-    !search ||
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.sku.toLowerCase().includes(search.toLowerCase())
-  );
+  const rows = data?.data ?? [];
+  const total = data?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const firstShown = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastShown = Math.min(page * PAGE_SIZE, total);
 
   return (
     <div style={{ display: "flex", gap: 8 }}>
@@ -121,7 +138,7 @@ function PartsPageInner() {
       {/* RIGHT LIST */}
       <div className="panel" style={{ flex: 1, display: "flex", flexDirection: "column" }}>
         <div className="panel-header" style={{ gap: 8 }}>
-          <span className="panel-title">Parts List ({data?.total ?? 0})</span>
+          <span className="panel-title">Parts List ({total})</span>
           <input
             className="erp-input"
             placeholder="Search name / SKU…"
@@ -148,7 +165,7 @@ function PartsPageInner() {
               {!loading && rows.length === 0 && <tr><td colSpan={7} className="table-empty">No parts.</td></tr>}
               {rows.map((p, i) => (
                 <tr key={p.id} onClick={() => pickRow(p)} style={{ cursor: "pointer" }}>
-                  <td>{i + 1}</td>
+                  <td>{(page - 1) * PAGE_SIZE + i + 1}</td>
                   <td>{p.name}</td>
                   <td>{p.sku}</td>
                   <td className="text-right">{Number(p.costPrice)}</td>
@@ -159,6 +176,36 @@ function PartsPageInner() {
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Without this the table simply stopped at 100 rows while the heading
+            counted thousands, and nothing on screen said the rest existed. */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",
+          borderTop: "1px solid var(--border)", fontSize: 11,
+        }}>
+          <span style={{ color: "var(--text-muted)" }}>
+            {total === 0 ? "No parts" : `Showing ${firstShown}–${lastShown} of ${total}`}
+            {debouncedSearch.trim() && ` matching “${debouncedSearch.trim()}”`}
+          </span>
+          <span style={{ flex: 1 }} />
+          <button
+            className="erp-btn erp-btn-default"
+            style={{ padding: "1px 8px" }}
+            disabled={page <= 1 || loading}
+            onClick={() => setPage((n) => Math.max(1, n - 1))}
+          >
+            ‹ Prev
+          </button>
+          <span style={{ minWidth: 74, textAlign: "center" }}>Page {page} / {pageCount}</span>
+          <button
+            className="erp-btn erp-btn-default"
+            style={{ padding: "1px 8px" }}
+            disabled={page >= pageCount || loading}
+            onClick={() => setPage((n) => Math.min(pageCount, n + 1))}
+          >
+            Next ›
+          </button>
         </div>
       </div>
     </div>
