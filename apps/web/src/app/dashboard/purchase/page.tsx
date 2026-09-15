@@ -1,7 +1,8 @@
 "use client";
 
 import { blockDecimalKeys, blockDecimalPaste } from "@/lib/intInput";
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect, useRef, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   partsApi,
@@ -9,6 +10,7 @@ import {
   vendorsApi,
   type PartData,
   type PurchaseItemPayload,
+  type PurchaseData,
   type VendorData,
 } from "@/lib/api";
 import SmartSearch from "@/components/SmartSearch";
@@ -30,6 +32,16 @@ const newRowId = () =>
     : `r-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function PurchasePage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 20 }}>Loading…</div>}>
+      <PurchaseScreen />
+    </Suspense>
+  );
+}
+
+function PurchaseScreen() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [saving, setSaving] = useState(false);
 
   // header
@@ -53,6 +65,12 @@ export default function PurchasePage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [nextPurchaseNo, setNextPurchaseNo] = useState<string>("…");
+
+  /* An existing purchase opens read-only. It has already moved stock, so
+     editing one would need the movement reversed and re-applied — a different
+     job from this screen, which exists to enter new stock. */
+  const [openedPurchase, setOpenedPurchase] = useState<PurchaseData | null>(null);
+  const viewing = openedPurchase !== null;
 
   const partSearchRef = useRef<HTMLInputElement | null>(null);
   const qtyRef = useRef<HTMLInputElement | null>(null);
@@ -138,6 +156,41 @@ export default function PurchasePage() {
     );
   }
 
+  /* Opened by id, the way Sale Invoice opens a bill with ?invoiceId. */
+  useEffect(() => {
+    const id = searchParams.get("purchaseId");
+    if (!id) { setOpenedPurchase(null); return; }
+    let cancelled = false;
+    purchasesApi.get(id)
+      .then((po) => {
+        if (cancelled) return;
+        setOpenedPurchase(po);
+        setVendorId(po.vendorId);
+        setVendorLabel(po.vendor?.name ?? "");
+        setNotes(po.notes ?? "");
+        setItems(po.items.map((i) => ({
+          rowId: i.id,
+          partId: i.partId,
+          sku: i.part?.sku ?? "",
+          name: i.part?.name ?? "",
+          stockQty: 0,
+          qty: i.receivedQty || i.quantity,
+          rate: Number(i.costPrice),
+          total: Math.round((i.receivedQty || i.quantity) * Number(i.costPrice)),
+        })));
+        setErr(null);
+      })
+      .catch((e) => { if (!cancelled) setErr((e as Error).message); });
+    return () => { cancelled = true; };
+  }, [searchParams]);
+
+  /* Leaving the view means dropping ?purchaseId too, or the effect reloads it. */
+  function startNewPurchase() {
+    resetAll();
+    setOpenedPurchase(null);
+    if (searchParams.get("purchaseId")) router.replace("/dashboard/purchase");
+  }
+
   function resetAll() {
     setVendorId("");
     setVendorLabel("");
@@ -193,8 +246,18 @@ export default function PurchasePage() {
         <h1 className="page-title">Purchase</h1>
         <span className="page-subtitle">Quick stock-in entry</span>
         <span style={{ marginLeft: 16, fontSize: 13, fontWeight: 600, color: "#555" }}>
-          PO# <span style={{ fontFamily: "monospace", color: "#1a3c6e", fontSize: 15 }}>{nextPurchaseNo}</span>
+          PO# <span style={{ fontFamily: "monospace", color: "#1a3c6e", fontSize: 15 }}>
+            {openedPurchase ? openedPurchase.purchaseNo : nextPurchaseNo}
+          </span>
         </span>
+        {viewing && (
+          <span style={{
+            marginLeft: 12, fontSize: 11, fontWeight: 600, padding: "2px 8px",
+            borderRadius: 2, background: "#1a3c6e", color: "#fff",
+          }}>
+            SAVED — view only
+          </span>
+        )}
         <span style={{ flex: 1 }} />
         <Link href="/dashboard/reports/purchases" className="erp-btn erp-btn-default">
           Purchase Reports →
@@ -208,6 +271,7 @@ export default function PurchasePage() {
             <label style={{ width: 80, fontSize: 11, fontWeight: 600 }}>Supplier:</label>
             <div style={{ flex: 1, maxWidth: 460 }}>
               <SmartSearch<VendorData>
+                disabled={viewing}
                 value={vendorLabel}
                 onChange={setVendorLabel}
                 fetcher={async (q, signal) => {
@@ -251,6 +315,7 @@ export default function PurchasePage() {
             <label className="si-lbl">Item Name</label>
             <div style={{ width: 780, minWidth: 0, flexShrink: 0 }}>
               <SmartSearch<PartData>
+                disabled={viewing}
                 value={partSearch}
                 onChange={setPartSearch}
                 fetcher={async (q, signal) => {
@@ -304,17 +369,17 @@ export default function PurchasePage() {
             <input ref={qtyRef} className="si-input" style={{ width: 65 }} type="number"
               onKeyDown={(e) => { blockDecimalKeys(e); if (e.key === "Enter") { e.preventDefault(); rateRef.current?.focus(); rateRef.current?.select(); } }}
               onPaste={blockDecimalPaste} min={1}
-              value={entryQty} onFocus={(e) => e.target.select()}
+              value={entryQty} disabled={viewing} onFocus={(e) => e.target.select()}
               onChange={(e) => setEntryQty(Number(e.target.value))} />
             <label className="si-lbl" style={{ marginLeft: 8 }}>Rate:</label>
             <input ref={rateRef} className="si-input si-input-yellow" style={{ width: 90 }} type="number"
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addBtnRef.current?.focus(); } }}
               step="0.01" min={0}
-              value={entryRate} onFocus={(e) => e.target.select()}
+              value={entryRate} disabled={viewing} onFocus={(e) => e.target.select()}
               onChange={(e) => setEntryRate(Number(e.target.value))} />
             <label className="si-lbl" style={{ marginLeft: 8 }}>Total:</label>
             <input className="si-input si-input-yellow" style={{ width: 95 }} value={entryTotal || 0} readOnly />
-            <button ref={addBtnRef} className="erp-btn erp-btn-primary" type="button" style={{ marginLeft: 8, whiteSpace: "nowrap" }} onClick={addItem}>Add</button>
+            <button ref={addBtnRef} className="erp-btn erp-btn-primary" type="button" disabled={viewing} style={{ marginLeft: 8, whiteSpace: "nowrap" }} onClick={addItem}>Add</button>
           </div>
 
           {/* ── Items table ─────────────────────────── */}
@@ -343,6 +408,7 @@ export default function PurchasePage() {
                       <button
                         className="erp-btn-danger-sm"
                         type="button"
+                        disabled={viewing}
                         onClick={() => removeItem(it.rowId)}
                         title="Remove"
                       >
@@ -432,14 +498,15 @@ export default function PurchasePage() {
 
           {/* ── Action buttons ──────────────────────── */}
           <div style={{ display: "flex", gap: 8, borderTop: "1px solid #d6dbe2", paddingTop: 8, marginTop: 4 }}>
-            <button className="erp-btn erp-btn-default" type="button" onClick={resetAll}>
+            <button className="erp-btn erp-btn-default" type="button" onClick={startNewPurchase}>
               📄 Add New
             </button>
             <button
               className="erp-btn erp-btn-primary"
               type="button"
               onClick={save}
-              disabled={saving}
+              disabled={saving || viewing}
+              title={viewing ? "This purchase is already saved and its stock posted." : undefined}
             >
               {saving ? "Saving…" : "💾 Save"}
             </button>
@@ -447,9 +514,11 @@ export default function PurchasePage() {
             {msg && <span style={{ color: "#0a7a30", fontSize: 11, alignSelf: "center" }}>{msg}</span>}
             {err && <span style={{ color: "#9e2020", fontSize: 11, alignSelf: "center" }}>{err}</span>}
           </div>
-          <div style={{ fontSize: 10, color: "#0a7a30" }}>
-            Stock will be increased immediately on save.
-          </div>
+          {!viewing && (
+            <div style={{ fontSize: 10, color: "#0a7a30" }}>
+              Stock will be increased immediately on save.
+            </div>
+          )}
         </div>
       </div>
     </div>

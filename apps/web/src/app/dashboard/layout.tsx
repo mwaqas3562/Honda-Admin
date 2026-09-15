@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
 import TopBar from "@/components/layout/TopBar";
 import { ToastProvider } from "@/components/Toast";
+import NumberFieldGuards from "@/components/NumberFieldGuards";
 
 export default function DashboardLayout({
   children,
@@ -36,6 +37,7 @@ export default function DashboardLayout({
 
   return (
     <div className="erp-shell">
+      <NumberFieldGuards />
       <Sidebar />
       <div className="erp-main">
         <TopBar />

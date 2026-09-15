@@ -42,7 +42,7 @@ const empty: FormState = {
 
 export default function IssueJobPage() {
   const router = useRouter();
-  const { saving, error, fetch, create, update, finalize } = useJobCards();
+  const { saving, error, fetch, create, update } = useJobCards();
 
   const [form, setForm] = useState<FormState>(empty);
   const customerNameRef = useRef<HTMLInputElement>(null);
@@ -213,29 +213,21 @@ export default function IssueJobPage() {
     }
   }
 
+  /* A job card exists to be billed, so a row in the list goes straight to its
+   * bill: the invoice if one was raised, otherwise a new one for this card. */
+  function openBill(j: JobCardData) {
+    router.push(j.invoice
+      ? `/dashboard/sale-invoice?invoiceId=${j.invoice.id}`
+      : `/dashboard/sale-invoice?jobCardId=${j.id}`);
+  }
+
   function generateInvoice() {
     if (!form.id) return;
     if (form.invoiceId) {
       router.push(`/dashboard/sale-invoice?invoiceId=${form.invoiceId}`);
       return;
     }
-    if (!form.isFinal) {
-      setMsg("Mark the Job Card as Final before generating an invoice.");
-      return;
-    }
     router.push(`/dashboard/sale-invoice?jobCardId=${form.id}`);
-  }
-
-  async function markFinal() {
-    if (!form.id) return;
-    if (!confirm("Mark this Job Card as Final? You will not be able to edit it after this — only generate the invoice.")) return;
-    setMsg(null);
-    const r = await finalize(form.id);
-    if (r) {
-      setForm((f) => ({ ...f, isFinal: r.isFinal, finalizedAt: r.finalizedAt, status: r.status }));
-      setMsg(`${r.jobNumber} marked as Final.`);
-      refreshList();
-    }
   }
 
   return (
@@ -429,13 +421,7 @@ export default function IssueJobPage() {
               {saving ? "Saving…" : form.id ? "Update Job" : "Save Job"}
             </button>
           )}
-          {form.id && !form.isFinal && !form.invoiceId && form.status !== "COMPLETED" && form.status !== "CANCELLED" && (
-            <button className="erp-btn erp-btn-primary" disabled={saving} onClick={markFinal}
-              style={{ background: "#b45309" }}>
-              🔒 Mark as Final
-            </button>
-          )}
-          {form.id && form.isFinal && !form.invoiceId && form.status !== "COMPLETED" && form.status !== "CANCELLED" && (
+          {form.id && !form.invoiceId && form.status !== "COMPLETED" && form.status !== "CANCELLED" && (
             <button className="erp-btn erp-btn-primary" onClick={generateInvoice} style={{ background: "#0a7a30" }}>
               Generate Invoice
             </button>
@@ -538,12 +524,14 @@ export default function IssueJobPage() {
                   <th>Title</th>
                   <th>Status</th>
                   <th>Invoice</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
-                {recent.length === 0 && <tr><td colSpan={6} className="table-empty">No job cards yet.</td></tr>}
+                {recent.length === 0 && <tr><td colSpan={7} className="table-empty">No job cards yet.</td></tr>}
                 {recent.map((j) => (
-                  <tr key={j.id} onClick={() => pickRow(j)} style={{ cursor: "pointer" }}>
+                  <tr key={j.id} onClick={() => openBill(j)} style={{ cursor: "pointer" }}
+                      title="Open this job card's bill">
                     <td style={{ fontFamily: "monospace", fontWeight: 600 }}>{j.jobNumber}</td>
                     <td>{j.customer.name}</td>
                     <td>{j.vehicleRegNo ?? "-"}</td>
@@ -558,6 +546,17 @@ export default function IssueJobPage() {
                       {j.invoice?.invoiceNumber
                         ? j.invoice.invoiceNumber
                         : <span style={{ color: "#aaa" }}>{j.jobNumber}</span>}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="erp-btn erp-btn-default"
+                        style={{ padding: "1px 8px", fontSize: 10 }}
+                        onClick={(e) => { e.stopPropagation(); pickRow(j); }}
+                        title="Load this job card into the form"
+                      >
+                        Edit
+                      </button>
                     </td>
                   </tr>
                 ))}

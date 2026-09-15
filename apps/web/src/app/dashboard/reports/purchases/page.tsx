@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   purchasesApi,
   vendorsApi,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/api";
 
 export default function PurchaseReportsPage() {
+  const router = useRouter();
   const [data, setData] = useState<PurchaseReportsData | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -157,8 +159,16 @@ export default function PurchaseReportsPage() {
               <tbody>
                 {data.history.length === 0 && <tr><td colSpan={7} className="table-empty">No purchases in range.</td></tr>}
                 {data.history.map((h) => (
-                  <tr key={h.id}>
-                    <td style={{ fontWeight: 600 }}>{h.purchaseNo}</td>
+                  /* Opens the purchase by id, the way a bill opens from a
+                     job card — the PO number is what staff recognise, but
+                     the id is what addresses it. */
+                  <tr
+                    key={h.id}
+                    onClick={() => router.push(`/dashboard/purchase?purchaseId=${h.id}`)}
+                    style={{ cursor: "pointer" }}
+                    title={`Open ${h.purchaseNo}`}
+                  >
+                    <td style={{ fontWeight: 600, color: "#0050a0", textDecoration: "underline" }}>{h.purchaseNo}</td>
                     <td style={{ fontSize: 10 }}>{new Date(h.purchasedAt).toLocaleDateString("en-GB")}</td>
                     <td>{h.vendor.name}</td>
                     <td className="text-right">{h.itemCount}</td>

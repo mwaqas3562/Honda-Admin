@@ -259,6 +259,35 @@ function SaleInvoiceInner() {
     setJobDetail("");
   }
 
+  /* ── Unsaved-change tracking ─────────────────────────────────
+     Mark as Paid takes payment and deducts stock, so it must act on what was
+     actually saved. Comparing a signature of the billable fields against the
+     one taken at save time is cheaper to keep honest than a setDirty() call
+     at every edit site, which is one edit away from being wrong. */
+  const formSignature = useMemo(() => JSON.stringify({
+    job: selectedJob?.id ?? null,
+    date, jobDetail, cellNo, saleTerm, meterReading,
+    discountAmt, cashRcv,
+    items: items.map((i) => [i.partId, i.itemName, i.qty, i.rate, i.remarks]),
+  }), [selectedJob, date, jobDetail, cellNo, saleTerm, meterReading, discountAmt, cashRcv, items]);
+
+  const [savedSignature, setSavedSignature] = useState<string | null>(null);
+  const hasUnsavedChanges = savedSignature !== null && savedSignature !== formSignature;
+
+  /* Opening an existing bill must not read as unsaved. The guard makes this
+     fire once per invoice, so edits afterwards still register as changes. */
+  const signedForId = useRef<string | null>(null);
+  useEffect(() => {
+    if (savedId && signedForId.current !== savedId) {
+      signedForId.current = savedId;
+      setSavedSignature(formSignature);
+    }
+    if (!savedId) {
+      signedForId.current = null;
+      setSavedSignature(null);
+    }
+  }, [savedId, formSignature]);
+
   /* ── Money math ──────────────────────────────────────────── */
   const partItems   = useMemo(() => items.filter((i) => !!i.partId), [items]);
   const labourItems = useMemo(() => items.filter((i) => !i.partId), [items]);
@@ -416,6 +445,7 @@ function SaleInvoiceInner() {
       });
       if (inv) {
         setSavedStatus(inv.status);
+        setSavedSignature(formSignature);
         setStatusMsg(`Updated draft: ${inv.invoiceNumber}`);
       }
       return;
@@ -425,6 +455,7 @@ function SaleInvoiceInner() {
       setSavedId(inv.id);
       setSavedNo(inv.invoiceNumber);
       setSavedStatus(inv.status);
+      setSavedSignature(formSignature);
       setStatusMsg(`Saved: ${inv.invoiceNumber}`);
     }
   }
@@ -477,18 +508,33 @@ function SaleInvoiceInner() {
       <div className="si-titlebar">
         <span className="si-title">SALE INVOICE</span>
         <div className="si-titlebar-right">
-          {!isView && (
-            <button
-              type="button"
-              className="si-foot-btn"
-              onClick={handlePay}
-              disabled={saving}
-              title="Mark this invoice as paid"
-              style={{ marginRight: 10, background: "#0a7a30", color: "#fff" }}
-            >
-              {saving ? "…" : "✓ Mark as Paid"}
-            </button>
-          )}
+          {!isView && (() => {
+            /* Marking paid takes money and deducts stock, so it is allowed
+               only against a bill that is saved, unmodified since that save,
+               and fully settled. Each reason is named in the tooltip rather
+               than leaving a dead button with no explanation. */
+            const payBlockedFor =
+              !savedId ? "Save the invoice before marking it paid."
+              : hasUnsavedChanges ? "Save your changes before marking it paid."
+              : balance !== 0 ? `Balance must be 0 — ${balance > 0 ? `${balance} still due` : `${-balance} overpaid`}.`
+              : null;
+            return (
+              <button
+                type="button"
+                className="si-foot-btn"
+                onClick={handlePay}
+                disabled={saving || payBlockedFor !== null}
+                title={payBlockedFor ?? "Mark this invoice as paid"}
+                style={{
+                  marginRight: 10, color: "#fff",
+                  background: payBlockedFor ? "#9bb3a3" : "#0a7a30",
+                  cursor: payBlockedFor ? "not-allowed" : undefined,
+                }}
+              >
+                {saving ? "…" : "✓ Mark as Paid"}
+              </button>
+            );
+          })()}
           <button
             type="button"
             className="si-foot-btn"
