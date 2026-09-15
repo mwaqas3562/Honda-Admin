@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useInvoiceSave } from "@/hooks/useInvoice";
 import { useParts } from "@/hooks/useInventory";
-import { jobCardsApi, partsApi, servicesApi, invoiceApi, type InvoiceData, type JobCardData, type PartData, type ServiceData } from "@/lib/api";
+import { jobCardsApi, partsApi, servicesApi, invoiceApi, type AdviceHistoryEntry, type InvoiceData, type JobCardData, type PartData, type ServiceData } from "@/lib/api";
 import SmartSearch from "@/components/SmartSearch";
 import InvoicePreviewModal from "@/components/invoice/InvoicePreviewModal";
 
@@ -105,6 +105,17 @@ function SaleInvoiceInner() {
   const [invSearch, setInvSearch] = useState("");
   const invSearchResultsRef = useRef<InvoiceData[]>([]);
   const [meterReading, setMeterReading] = useState("");
+  /* What was recommended and what the customer declined. Kept on the bill so a
+     later complaint can be checked against the advice given at the time. */
+  const [notes, setNotes] = useState("");
+  /* Notes as last persisted, so a paid bill can still have its note corrected
+     without the money fields unlocking. */
+  const [savedNotes, setSavedNotes] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
+  const notesDirty = notes.trim() !== savedNotes.trim();
+
+  /* What this vehicle or customer was told before. */
+  const [advice, setAdvice] = useState<AdviceHistoryEntry[]>([]);
 
   /* ── Refs for keyboard navigation in parts entry ─────── */
   const partSearchRef = useRef<HTMLInputElement | null>(null);
@@ -165,6 +176,8 @@ function SaleInvoiceInner() {
     setDate(toDateInput(inv.createdAt));
     setJobDetail(inv.jobDetail ?? "");
     setCellNo(inv.cellNo ?? "");
+    setNotes(inv.notes ?? "");
+    setSavedNotes(inv.notes ?? "");
     setMeterReading(inv.jobCard?.meterReading != null ? String(inv.jobCard.meterReading) : "");
     setItems(
       inv.items.map((i) => {
@@ -196,6 +209,8 @@ function SaleInvoiceInner() {
         if (j) selectJob(j);
       }
       setInvSearch("");
+      /* Everything the signature covers is now in state. */
+      setBaselinePending(true);
     } catch (e: unknown) {
       setStatusMsg(e instanceof Error ? e.message : "Failed to load invoice.");
     }
@@ -258,6 +273,61 @@ function SaleInvoiceInner() {
     setCellNo("");
     setJobDetail("");
   }
+
+  /* Pull prior advice whenever the job card changes, so it is on screen while
+     the bill is being written rather than only after a complaint. */
+  useEffect(() => {
+    const jobId = selectedJob?.id;
+    if (!jobId) { setAdvice([]); return; }
+    let cancelled = false;
+    invoiceApi.adviceHistory(jobId)
+      .then((r) => { if (!cancelled) setAdvice(r.data ?? []); })
+      .catch(() => { if (!cancelled) setAdvice([]); });
+    return () => { cancelled = true; };
+  }, [selectedJob?.id]);
+
+  async function saveNotesOnly() {
+    if (!savedId) return;
+    setSavingNotes(true);
+    try {
+      const inv = await update(savedId, { notes: notes.trim() });
+      if (inv) { setSavedNotes(notes.trim()); setStatusMsg("Notes saved."); }
+    } finally {
+      setSavingNotes(false);
+    }
+  }
+
+  /* ── Unsaved-change tracking ─────────────────────────────────
+     Mark as Paid takes payment and deducts stock, so it must act on what was
+     actually saved. Comparing a signature of the billable fields against the
+     one taken at save time is cheaper to keep honest than a setDirty() call
+     at every edit site, which is one edit away from being wrong. */
+  const formSignature = useMemo(() => JSON.stringify({
+    job: selectedJob?.id ?? null,
+    date, jobDetail, cellNo, saleTerm, meterReading, notes,
+    discountAmt, cashRcv,
+    items: items.map((i) => [i.partId, i.itemName, i.qty, i.rate, i.remarks]),
+  }), [selectedJob, date, jobDetail, cellNo, saleTerm, meterReading, notes, discountAmt, cashRcv, items]);
+
+  const [savedSignature, setSavedSignature] = useState<string | null>(null);
+  const hasUnsavedChanges = savedSignature !== null && savedSignature !== formSignature;
+
+  /* Opening an existing bill must not read as unsaved.
+     Keying this on savedId alone was wrong: applyLoadedInvoice sets savedId
+     and commits, but the job card is fetched afterwards, so the baseline was
+     taken while selectedJob was still null and every loaded bill then looked
+     edited — which left Mark as Paid disabled forever. The load now says
+     explicitly when it has finished. */
+  const [baselinePending, setBaselinePending] = useState(false);
+  useEffect(() => {
+    if (!baselinePending) return;
+    setSavedSignature(formSignature);
+    setBaselinePending(false);
+  }, [baselinePending, formSignature]);
+
+  useEffect(() => {
+    if (!savedId) setSavedSignature(null);
+  }, [savedId]);
 
   /* ── Money math ──────────────────────────────────────────── */
   const partItems   = useMemo(() => items.filter((i) => !!i.partId), [items]);
@@ -365,6 +435,7 @@ function SaleInvoiceInner() {
       jobDetail,
       cellNo,
       saleTerm,
+      notes: notes.trim() || undefined,
       discountPct: pct,
       paidAmount: cashRcv,
       status: asPaid ? ("PAID" as const) : ("DRAFT" as const),
@@ -401,6 +472,7 @@ function SaleInvoiceInner() {
         jobDetail,
         cellNo,
         saleTerm,
+        notes: notes.trim(),
         discountPct: pct,
         paidAmount: cashRcv,
         status: "DRAFT",
@@ -416,6 +488,7 @@ function SaleInvoiceInner() {
       });
       if (inv) {
         setSavedStatus(inv.status);
+        setSavedSignature(formSignature);
         setStatusMsg(`Updated draft: ${inv.invoiceNumber}`);
       }
       return;
@@ -425,6 +498,7 @@ function SaleInvoiceInner() {
       setSavedId(inv.id);
       setSavedNo(inv.invoiceNumber);
       setSavedStatus(inv.status);
+      setSavedSignature(formSignature);
       setStatusMsg(`Saved: ${inv.invoiceNumber}`);
     }
   }
@@ -477,18 +551,33 @@ function SaleInvoiceInner() {
       <div className="si-titlebar">
         <span className="si-title">SALE INVOICE</span>
         <div className="si-titlebar-right">
-          {!isView && (
-            <button
-              type="button"
-              className="si-foot-btn"
-              onClick={handlePay}
-              disabled={saving}
-              title="Mark this invoice as paid"
-              style={{ marginRight: 10, background: "#0a7a30", color: "#fff" }}
-            >
-              {saving ? "…" : "✓ Mark as Paid"}
-            </button>
-          )}
+          {!isView && (() => {
+            /* Marking paid takes money and deducts stock, so it is allowed
+               only against a bill that is saved, unmodified since that save,
+               and fully settled. Each reason is named in the tooltip rather
+               than leaving a dead button with no explanation. */
+            const payBlockedFor =
+              !savedId ? "Save the invoice before marking it paid."
+              : hasUnsavedChanges ? "Save your changes before marking it paid."
+              : balance !== 0 ? `Balance must be 0 — ${balance > 0 ? `${balance} still due` : `${-balance} overpaid`}.`
+              : null;
+            return (
+              <button
+                type="button"
+                className="si-foot-btn"
+                onClick={handlePay}
+                disabled={saving || payBlockedFor !== null}
+                title={payBlockedFor ?? "Mark this invoice as paid"}
+                style={{
+                  marginRight: 10, color: "#fff",
+                  background: payBlockedFor ? "#9bb3a3" : "#0a7a30",
+                  cursor: payBlockedFor ? "not-allowed" : undefined,
+                }}
+              >
+                {saving ? "…" : "✓ Mark as Paid"}
+              </button>
+            );
+          })()}
           <button
             type="button"
             className="si-foot-btn"
@@ -940,6 +1029,54 @@ function SaleInvoiceInner() {
 
         {/* Bottom totals */}
         <div className="si-bottom">
+          <div className="si-notes">
+            <label className="si-sum-lbl" htmlFor="si-notes-field" style={{ textAlign: "left" }}>
+              Notes / advice given to customer
+            </label>
+            <textarea
+              id="si-notes-field"
+              className="si-input"
+              value={notes}
+              maxLength={2000}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g. Advised to replace clutch plates — customer declined."
+              rows={4}
+            />
+            {isView && (
+              /* The bill is locked, but advice is often written up after the
+                 customer has left — so this one field keeps its own save. */
+              <button
+                type="button"
+                className="si-foot-btn"
+                onClick={saveNotesOnly}
+                disabled={!notesDirty || savingNotes}
+                style={{ alignSelf: "flex-start", marginTop: 2 }}
+              >
+                {savingNotes ? "Saving…" : notesDirty ? "💾 Save Notes" : "Notes saved"}
+              </button>
+            )}
+            {advice.length > 0 && (
+              <details className="si-advice">
+                <summary>Previously advised ({advice.length})</summary>
+                {advice.map((a) => (
+                  <div key={a.id} className="si-advice-row">
+                    <span className="si-advice-when">
+                      {new Date(a.issuedAt ?? a.createdAt).toLocaleDateString("en-GB",
+                        { day: "2-digit", month: "short", year: "2-digit" })}
+                      {" · "}{a.invoiceNumber}
+                      {/* The history matches on customer OR vehicle, so advice
+                          about their other bike can appear here. Naming the
+                          registration keeps it from reading as advice about
+                          the bike on this bill. */}
+                      {a.jobCard?.vehicleRegNo && ` · ${a.jobCard.vehicleRegNo}`}
+                      {a.jobCard?.meterReading != null && ` · ${a.jobCard.meterReading.toLocaleString()} KM`}
+                    </span>
+                    <span>{a.notes}</span>
+                  </div>
+                ))}
+              </details>
+            )}
+          </div>
           <div className="si-summary">
             <div className="si-sum-row">
               <span className="si-sum-lbl">Parts Total</span>

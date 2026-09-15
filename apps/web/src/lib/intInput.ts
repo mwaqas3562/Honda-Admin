@@ -1,6 +1,12 @@
 /**
  * Integer-only input helpers.
  * The system policy is whole numbers only — no decimals, no negatives.
+ *
+ * Arrow-key, scroll-wheel and select-the-placeholder-zero behaviour is NOT
+ * here: it lives in components/NumberFieldGuards, mounted once in the
+ * dashboard layout and applied by delegation. Duplicating it as per-input
+ * props would double up — a focusin select from the guard and an onFocus
+ * select from the props — on any field that used both.
  */
 import type { KeyboardEvent, ClipboardEvent } from "react";
 
@@ -18,12 +24,3 @@ export function blockDecimalPaste(e: ClipboardEvent<HTMLInputElement>): void {
     e.preventDefault();
   }
 }
-
-export const intInputProps = {
-  type: "number" as const,
-  step: 1,
-  min: 0,
-  inputMode: "numeric" as const,
-  onKeyDown: blockDecimalKeys,
-  onPaste: blockDecimalPaste,
-};

@@ -15,7 +15,7 @@ export type JobCardReportRow = {
   ageDays: number;
   turnaroundDays: number | null;
   customer: { id: string; name: string; phone: string | null };
-  invoice: { id: string; invoiceNumber: string; status: string } | null;
+  invoice: { id: string; invoiceNumber: string; status: string; paidAt: string | null } | null;
 };
 
 export type JobCardReportTotals = {

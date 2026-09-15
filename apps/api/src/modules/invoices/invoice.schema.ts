@@ -23,6 +23,7 @@ export const createInvoiceSchema = z.object({
   /** Override the auto-filled customer cell number for this invoice. */
   cellNo: z.string().optional(),
   saleTerm: z.string().default("BY CASH"),
+  notes: z.string().max(2000).optional(),
   discountPct: z.number().min(0).max(100).default(0),
   paidAmount: z.number().int().nonnegative().default(0),
   /** When PAID, stock is deducted and the Job Card auto-completes. */
@@ -35,6 +36,7 @@ export const updateInvoiceSchema = z.object({
   jobDetail: z.string().optional(),
   cellNo: z.string().optional(),
   saleTerm: z.string().optional(),
+  notes: z.string().max(2000).optional(),
   discountPct: z.number().min(0).max(100).optional(),
   paidAmount: z.number().int().nonnegative().optional(),
   status: z.enum(["DRAFT", "ISSUED", "PARTIAL", "PAID", "VOID"]).optional(),

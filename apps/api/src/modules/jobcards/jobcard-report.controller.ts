@@ -112,7 +112,7 @@ export async function getJobCardsReportHandler(
       partsAmount: true,
       totalAmount: true,
       customer: { select: { id: true, name: true, phone: true } },
-      invoice: { select: { id: true, invoiceNumber: true, status: true } },
+      invoice: { select: { id: true, invoiceNumber: true, status: true, paidAt: true } },
     },
   });
 

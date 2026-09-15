@@ -85,6 +85,9 @@ export async function recordPayment(
       data: {
         paidAmount: newPaid,
         status: nextStatus,
+        /* A bill settled here is as paid as one marked paid on the invoice
+         * screen, and the Job Cards report reads paidAt for both. */
+        ...(fullyPaid ? { paidAt: new Date() } : {}),
         ...(fullyPaid && !inv.stockDeducted ? { stockDeducted: true } : {}),
       },
     });

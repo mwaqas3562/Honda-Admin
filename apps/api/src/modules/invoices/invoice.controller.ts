@@ -5,6 +5,7 @@ import { createInvoiceSchema, updateInvoiceSchema } from "./invoice.schema";
 import { createPaymentSchema } from "./payment.schema";
 import {
   createInvoice,
+  getAdviceHistory,
   getInvoice,
   listInvoices,
   softDeleteInvoice,
@@ -72,4 +73,13 @@ export async function createPaymentHandler(req: Request, res: Response): Promise
   }
   const payment = await recordPayment(String(req.params.id), shopId, req.user!.id, parsed.data);
   res.status(201).json(payment);
+}
+
+
+export async function adviceHistoryHandler(req: Request, res: Response) {
+  const shopId = getShopScope(req);
+  const jobCardId = String(req.query.jobCardId ?? "");
+  if (!jobCardId) return res.json({ data: [] });
+  const data = await getAdviceHistory(shopId, jobCardId);
+  return res.json({ data });
 }

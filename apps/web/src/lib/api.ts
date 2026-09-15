@@ -57,6 +57,8 @@ export type InvoiceData = {
   jobDetail: string | null;
   cellNo: string | null;
   saleTerm: string;
+  notes: string | null;
+  paidAt: string | null;
   subtotal: string;
   discountPct: string;
   discountAmt: string;
@@ -93,6 +95,7 @@ export type CreateInvoicePayload = {
   jobDetail?: string;
   cellNo?: string;
   saleTerm?: string;
+  notes?: string;
   discountPct?: number;
   paidAmount?: number;
   /** When "PAID", stock auto-deducts and the linked Job Card auto-completes. */
@@ -115,6 +118,7 @@ export type UpdateInvoicePayload = {
   jobDetail?: string;
   cellNo?: string;
   saleTerm?: string;
+  notes?: string;
   discountPct?: number;
   paidAmount?: number;
   status?: "DRAFT" | "ISSUED" | "PARTIAL" | "PAID" | "VOID";
@@ -122,7 +126,19 @@ export type UpdateInvoicePayload = {
 };
 
 /* ─── Invoice API calls ──────────────────────────────────── */
+export type AdviceHistoryEntry = {
+  id: string;
+  invoiceNumber: string;
+  notes: string | null;
+  createdAt: string;
+  issuedAt: string | null;
+  jobCard: { vehicleRegNo: string | null; meterReading: number | null } | null;
+};
+
 export const invoiceApi = {
+  /** What this vehicle's or customer's earlier bills recorded as advice. */
+  adviceHistory: (jobCardId: string) =>
+    apiFetch<{ data: AdviceHistoryEntry[] }>(`/invoices/advice-history?jobCardId=${encodeURIComponent(jobCardId)}`),
   list: (page = 1, limit = 50, q?: string) => {
     const params = new URLSearchParams({ page: String(page), limit: String(limit) });
     if (q && q.trim()) params.set("q", q.trim());
@@ -600,6 +616,9 @@ export type CreateJobCardPayload = {
 
 /** Note: status is system-controlled; not editable from the client. */
 export type UpdateJobCardPayload = {
+  /** Corrects the linked customer record — see updateJobCard on the API. */
+  customerName?: string;
+  customerPhone?: string;
   title?: string;
   description?: string;
   vehicleRegNo?: string;

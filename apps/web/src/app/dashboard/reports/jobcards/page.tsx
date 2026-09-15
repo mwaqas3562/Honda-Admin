@@ -1,18 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AsyncContent,
   Badge,
   type BadgeTone,
-  DrillDown,
   ExportCSV,
   KPICard,
   ReportPageHeader,
   ReportPanel,
   ReportToolbar,
   SortableTH,
-  SummaryTile,
   type ExportColumn,
 } from "@/components/reports";
 import { useReportFilters } from "@/hooks/useReportFilters";
@@ -42,6 +41,20 @@ const STATUS_META: Record<JobCardStatus, { label: string; tone: BadgeTone }> = {
   COMPLETED: { label: "Completed", tone: "emerald" },
   CANCELLED: { label: "Cancelled", tone: "red" },
 };
+
+/** "15 Sep 2026, 02:35 PM" — date and clock time, since two bills on the same
+ *  day are told apart by the time. en-GB renders a lowercase "pm", so the
+ *  meridiem is upper-cased to match the rest of the report's casing. */
+function formatPaidAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d
+    .toLocaleString("en-GB", {
+      day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", hour12: true,
+    })
+    .replace(/\b(am|pm)\b/i, (m) => m.toUpperCase());
+}
 
 export default function JobCardsReportPage() {
   const filters = useReportFilters("today");
@@ -121,6 +134,10 @@ export default function JobCardsReportPage() {
         header: "Turnaround (days)",
         accessor: (r) => (r.turnaroundDays ?? "") as number | "",
       },
+      {
+        header: "Paid At",
+        accessor: (r) => (r.invoice?.paidAt ? formatPaidAt(r.invoice.paidAt) : ""),
+      },
       { header: "Invoice", accessor: (r) => r.invoice?.invoiceNumber ?? "" },
     ],
     []
@@ -129,9 +146,20 @@ export default function JobCardsReportPage() {
   const retry = useCallback(() => setReloadTick((t) => t + 1), []);
 
   /* Drill-down */
-  const [drill, setDrill] = useState<JobCardReportRow | null>(null);
-  const openDrill = useCallback((r: JobCardReportRow) => setDrill(r), []);
-  const closeDrill = useCallback(() => setDrill(null), []);
+  /* The bill is the detail worth seeing — the drill-down repeated columns the
+     table already shows, while the invoice carries the actual line items. */
+  const router = useRouter();
+  const openBill = useCallback((r: JobCardReportRow) => {
+    if (r.invoice) {
+      router.push(`/dashboard/sale-invoice?invoiceId=${r.invoice.id}`);
+      return;
+    }
+    /* This report lists every status. The API refuses to invoice a closed
+       card, so sending the user to a blank bill would only fail after the
+       whole thing had been keyed in. */
+    if (r.status === "COMPLETED" || r.status === "CANCELLED") return;
+    router.push(`/dashboard/sale-invoice?jobCardId=${r.id}`);
+  }, [router]);
 
   return (
     <div className="p-3 space-y-3">
@@ -259,6 +287,7 @@ export default function JobCardsReportPage() {
                     <SortableTH align="right" sortKey="total" activeKey={sortBy} direction={sortDir} onSort={onHeaderSort}>Total</SortableTH>
                     <SortableTH align="right">Age</SortableTH>
                     <SortableTH align="right" sortKey="turnaround" activeKey={sortBy} direction={sortDir} onSort={onHeaderSort}>Turnaround</SortableTH>
+                    <SortableTH>Paid At</SortableTH>
                     <SortableTH align="right">Action</SortableTH>
                   </tr>
                 </thead>
@@ -273,7 +302,7 @@ export default function JobCardsReportPage() {
                         <td className="px-3 py-1.5 text-[var(--text-muted)] whitespace-nowrap">
                           {formatDate(r.createdAt)}
                         </td>
-                        <td className="px-3 py-1.5 font-medium text-[var(--text-main)]">
+                        <td className="px-3 py-1.5 font-medium text-[var(--text-main)]" title={r.title}>
                           {r.jobNumber}
                         </td>
                         <td className="px-3 py-1.5 text-center">
@@ -310,11 +339,23 @@ export default function JobCardsReportPage() {
                             ? `${r.turnaroundDays}d`
                             : "—"}
                         </td>
+                        {/* The moment payment was taken, not the bill's date —
+                            the two differ whenever a bill is back-dated. */}
+                        <td className="px-3 py-1.5 whitespace-nowrap text-[var(--text-muted)]">
+                          {r.invoice?.paidAt ? formatPaidAt(r.invoice.paidAt) : "—"}
+                        </td>
                         <td className="px-3 py-1.5 text-right">
                           <button
                             type="button"
-                            onClick={() => openDrill(r)}
-                            className="text-[11px] text-[var(--accent)] hover:underline"
+                            onClick={() => openBill(r)}
+                            disabled={!r.invoice && (r.status === "COMPLETED" || r.status === "CANCELLED")}
+                            className="text-[11px] text-[var(--accent)] hover:underline disabled:text-[var(--text-muted)] disabled:no-underline disabled:cursor-not-allowed"
+                            title={
+                              r.invoice ? `Open ${r.invoice.invoiceNumber}`
+                                : r.status === "COMPLETED" || r.status === "CANCELLED"
+                                  ? `${r.jobNumber} is ${meta.label.toLowerCase()} and has no invoice — it cannot be billed.`
+                                  : "Raise a bill for this job card"
+                            }
                           >
                             View
                           </button>
@@ -329,81 +370,6 @@ export default function JobCardsReportPage() {
         </AsyncContent>
       </ReportPanel>
 
-      {/* Drill-down */}
-      <DrillDown
-        open={drill !== null}
-        onClose={closeDrill}
-        title={drill ? `Job Card ${drill.jobNumber}` : "Job Card"}
-        subtitle={
-          drill
-            ? [
-                drill.customer.name,
-                drill.vehicleRegNo,
-                drill.mechanicAssigned,
-                formatDate(drill.createdAt),
-              ]
-                .filter(Boolean)
-                .join(" • ")
-            : undefined
-        }
-        size="lg"
-      >
-        {drill && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <SummaryTile
-                label="Status"
-                value={
-                  <Badge tone={STATUS_META[drill.status].tone}>
-                    {STATUS_META[drill.status].label}
-                  </Badge>
-                }
-              />
-              <SummaryTile label="Labour" value={formatCurrency(drill.labour)} />
-              <SummaryTile label="Parts" value={formatCurrency(drill.parts)} />
-              <SummaryTile
-                label="Total"
-                value={formatCurrency(drill.total)}
-                accent="text-emerald-700"
-              />
-              <SummaryTile
-                label="Age"
-                value={`${formatInteger(drill.ageDays)} days`}
-              />
-              <SummaryTile
-                label="Turnaround"
-                value={
-                  drill.turnaroundDays !== null
-                    ? `${drill.turnaroundDays} days`
-                    : "—"
-                }
-              />
-              <SummaryTile
-                label="Customer"
-                value={drill.customer.name}
-                hint={drill.customer.phone ?? undefined}
-              />
-              <SummaryTile
-                label="Invoice"
-                value={drill.invoice ? drill.invoice.invoiceNumber : "—"}
-                hint={drill.invoice?.status}
-              />
-            </div>
-            <div className="border border-[var(--border)] rounded-sm p-3 bg-[var(--bg-panel)]">
-              <div className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                Title
-              </div>
-              <div className="text-[12px]">{drill.title}</div>
-              <div className="mt-2 text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                Vehicle / Mechanic
-              </div>
-              <div className="text-[12px]">
-                {drill.vehicleRegNo ?? "—"} · {drill.mechanicAssigned ?? "—"}
-              </div>
-            </div>
-          </div>
-        )}
-      </DrillDown>
     </div>
   );
 }

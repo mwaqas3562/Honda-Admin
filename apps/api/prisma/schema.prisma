@@ -425,6 +425,13 @@ model Invoice {
   cellNo        String?
   status        InvoiceStatus @default(DRAFT)
   issuedAt      DateTime?
+  /// Wall-clock moment the bill was actually marked paid. Distinct from
+  /// issuedAt, which carries the bill's own date and moves if the bill is
+  /// re-dated — this records when the money was taken and never shifts.
+  paidAt        DateTime?
+  /// What was recommended to the customer and what they declined. Kept so a
+  /// later complaint can be checked against the advice given at the time.
+  notes         String?
   dueAt         DateTime?
   /// Set true once stock has been deducted; prevents double deduction.
   stockDeducted Boolean       @default(false)

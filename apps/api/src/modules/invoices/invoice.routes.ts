@@ -12,6 +12,7 @@ import {
   deleteInvoiceHandler,
   getInvoiceHandler,
   listInvoicesHandler,
+  adviceHistoryHandler,
   updateInvoiceHandler,
   listPaymentsHandler,
   createPaymentHandler,
@@ -20,6 +21,13 @@ import {
 export const invoiceRouter = Router();
 
 const shopRoles = [Role.SUPER_ADMIN, Role.SHOP_ADMIN, Role.STOREKEEPER, Role.JOB_CARD_MANAGER];
+
+/* Before /invoices/:id, or the literal path is swallowed by the param route. */
+invoiceRouter.get(
+  "/invoices/advice-history",
+  authenticate, enforceShopScope, authorize(shopRoles), checkPermission("read"),
+  asyncHandler(adviceHistoryHandler)
+);
 
 invoiceRouter.get(
   "/invoices",

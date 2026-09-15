@@ -292,7 +292,11 @@ export default function SmartSearch<T>({
                       borderBottom: "1px solid #eef0f4",
                       cursor: "pointer",
                       fontSize: 12,
-                      background: isHover ? "#e6f0fb" : "#fff",
+                      /* Solid, not a tint: the previous highlight was so
+                         faint that on a long parts list you could not tell
+                         which row Enter would pick. */
+                      background: isHover ? "#0050a0" : "#fff",
+                      color: isHover ? "#fff" : "inherit",
                     }}
                   >
                     {columns.map((c, i) => (
@@ -323,7 +327,8 @@ export default function SmartSearch<T>({
                     borderBottom: "1px solid #eef0f4",
                     cursor: "pointer",
                     fontSize: 12,
-                    background: isHover ? "#e6f0fb" : "#fff",
+                    background: isHover ? "#0050a0" : "#fff",
+                    color: isHover ? "#fff" : "inherit",
                   }}
                 >
                   {renderItem ? renderItem(it) : null}

@@ -30,6 +30,8 @@ const invoiceSelect = {
   status: true,
   stockDeducted: true,
   issuedAt: true,
+  paidAt: true,
+  notes: true,
   createdAt: true,
   updatedAt: true,
   customer: { select: { id: true, name: true, phone: true } },
@@ -80,6 +82,8 @@ const invoiceListSelect = {
   status: true,
   stockDeducted: true,
   issuedAt: true,
+  paidAt: true,
+  notes: true,
   createdAt: true,
   updatedAt: true,
   customer: { select: { id: true, name: true, phone: true } },
@@ -378,6 +382,7 @@ export async function createInvoice(
         jobDetail: input.jobDetail ?? null,
         cellNo: input.cellNo ?? null,
         saleTerm: input.saleTerm,
+        notes: input.notes ?? null,
         subtotal,
         discountPct: input.discountPct,
         discountAmt,
@@ -388,6 +393,9 @@ export async function createInvoice(
         status: input.status,
         /* A back-dated bill is issued on its own date, not today. */
         issuedAt: input.status === "PAID" ? (entryDate ?? new Date()) : null,
+        /* paidAt is the clock, not the calendar: when the money was actually
+         * taken. It stays put even if the bill is later re-dated. */
+        paidAt: input.status === "PAID" ? new Date() : null,
         ...(entryDate && { createdAt: entryDate }),
         createdById: userId,
         items: {
@@ -536,10 +544,18 @@ export async function updateInvoice(
         ...(input.jobDetail !== undefined && { jobDetail: input.jobDetail }),
         ...(input.cellNo !== undefined && { cellNo: input.cellNo }),
         ...(input.saleTerm && { saleTerm: input.saleTerm }),
+        ...(input.notes !== undefined && { notes: input.notes }),
         ...(input.status && {
           status: input.status,
+          /* Voiding restores stock and reverses the payment, so the bill must
+           * stop claiming it was paid — otherwise any report trusting paidAt
+           * counts money that was given back. */
+          ...(transitioningToVoid ? { paidAt: null } : {}),
           ...(transitioningToPaid
-            ? { issuedAt: input.entryDate ? new Date(input.entryDate) : new Date() }
+            ? {
+                issuedAt: input.entryDate ? new Date(input.entryDate) : new Date(),
+                paidAt: new Date(),
+              }
             : input.status === "PAID" && input.entryDate
               /* Re-dating an already-paid bill moves issuedAt too, so the
                * sales report and the dashboard trend keep agreeing. */
@@ -695,4 +711,54 @@ export async function softDeleteInvoice(id: string, shopId: string) {
     }
     return result;
   }, { maxWait: 15000, timeout: 30000 });
+}
+
+
+/**
+ * Advice recorded on this vehicle's or this customer's earlier bills.
+ *
+ * The point of invoice notes is the return visit — a customer comes back
+ * complaining about the brakes, and the shop needs to show they were told.
+ * Finding that by opening old bills one at a time defeats the purpose, so the
+ * history comes back with the job card.
+ *
+ * Matched on the vehicle first and the customer second: a bike may change
+ * hands, and a customer may own several.
+ */
+export async function getAdviceHistory(shopId: string, jobCardId: string, limit = 10) {
+  const jobCard = await prisma.jobCard.findFirst({
+    where: { id: jobCardId, shopId, isDeleted: false },
+    select: { id: true, customerId: true, vehicleRegNo: true },
+  });
+  if (!jobCard) return [];
+
+  const or: Prisma.InvoiceWhereInput[] = [{ customerId: jobCard.customerId }];
+  if (jobCard.vehicleRegNo) {
+    or.push({ jobCard: { vehicleRegNo: { equals: jobCard.vehicleRegNo, mode: "insensitive" } } });
+  }
+
+  const rows = await prisma.invoice.findMany({
+    where: {
+      shopId,
+      isDeleted: false,
+      notes: { not: null },
+      /* Blank-but-present notes exist: clearing a saved note stores "".
+       * Excluding them here rather than after the fetch stops ten blank rows
+       * from consuming the limit and hiding real advice below them. */
+      NOT: { notes: { in: ["", " "] } },
+      /* Advice on a reversed bill is not history worth quoting back. */
+      status: { not: "VOID" },
+      /* The bill being written is not its own history. */
+      jobCardId: { not: jobCardId },
+      OR: or,
+    },
+    select: {
+      id: true, invoiceNumber: true, notes: true, createdAt: true, issuedAt: true,
+      jobCard: { select: { vehicleRegNo: true, meterReading: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+
+  return rows.filter((r) => (r.notes ?? "").trim().length > 0);
 }

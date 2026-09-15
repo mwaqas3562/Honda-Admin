@@ -183,7 +183,7 @@ export async function updateJobCard(
 ) {
   const existing = await prisma.jobCard.findFirst({
     where: { id, shopId, isDeleted: false },
-    select: { id: true, status: true, isFinal: true, invoice: { select: { id: true } } },
+    select: { id: true, status: true, isFinal: true, customerId: true, invoice: { select: { id: true } } },
   });
   if (!existing) return null;
   if (existing.invoice) {
@@ -216,28 +216,49 @@ export async function updateJobCard(
     mechanicUpdate.mechanicAssigned = input.mechanicAssigned || null;
   }
 
-  return prisma.jobCard.update({
-    where: { id },
-    data: {
-      ...(input.title !== undefined && { title: input.title }),
-      ...(input.description !== undefined && {
-        description: input.description || null,
-      }),
-      ...(input.vehicleRegNo !== undefined && {
-        vehicleRegNo: input.vehicleRegNo || null,
-      }),
-      ...(input.vehicleType !== undefined && {
-        vehicleType: input.vehicleType || null,
-      }),
-      ...(input.engineType !== undefined && {
-        engineType: input.engineType || null,
-      }),
-      ...(input.meterReading !== undefined && {
-        meterReading: input.meterReading,
-      }),
-      ...mechanicUpdate,
-    },
-    select: jobCardSelect,
+  /* A job card references a customer rather than storing a name, so fixing the
+   * name or number here edits that customer record — and therefore every other
+   * card and bill of theirs. That is right for a typo, which is what this is
+   * for; it is not a way to move a card to a different person.
+   *
+   * Both writes go in one transaction: renaming the customer and then failing
+   * to update the card would leave someone renamed for an edit that never
+   * happened, with nothing to roll it back. */
+  const customerEdit =
+    input.customerName !== undefined || input.customerPhone !== undefined
+      ? {
+          ...(input.customerName !== undefined && { name: input.customerName.trim() }),
+          ...(input.customerPhone !== undefined && { phone: input.customerPhone.trim() || null }),
+        }
+      : null;
+
+  return prisma.$transaction(async (tx) => {
+    if (customerEdit) {
+      await tx.customer.update({ where: { id: existing.customerId }, data: customerEdit });
+    }
+    return tx.jobCard.update({
+      where: { id },
+      data: {
+        ...(input.title !== undefined && { title: input.title }),
+        ...(input.description !== undefined && {
+          description: input.description || null,
+        }),
+        ...(input.vehicleRegNo !== undefined && {
+          vehicleRegNo: input.vehicleRegNo || null,
+        }),
+        ...(input.vehicleType !== undefined && {
+          vehicleType: input.vehicleType || null,
+        }),
+        ...(input.engineType !== undefined && {
+          engineType: input.engineType || null,
+        }),
+        ...(input.meterReading !== undefined && {
+          meterReading: input.meterReading,
+        }),
+          ...mechanicUpdate,
+        },
+        select: jobCardSelect,
+    });
   });
 }
 

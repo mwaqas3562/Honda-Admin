@@ -42,10 +42,14 @@ const empty: FormState = {
 
 export default function IssueJobPage() {
   const router = useRouter();
-  const { saving, error, fetch, create, update, finalize } = useJobCards();
+  const { saving, error, fetch, create, update } = useJobCards();
 
   const [form, setForm] = useState<FormState>(empty);
   const customerNameRef = useRef<HTMLInputElement>(null);
+  /* The customer as loaded. Sending name/phone on every save would rewrite the
+     shared customer record — and every other card and bill of theirs — even
+     when only the job title changed. */
+  const loadedCustomer = useRef<{ name: string; phone: string } | null>(null);
   const [serviceSearch, setServiceSearch] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [recent, setRecent] = useState<JobCardData[]>([]);
@@ -104,6 +108,7 @@ export default function IssueJobPage() {
     (form.isFinal || form.invoiceId != null || form.status === "COMPLETED" || form.status === "CANCELLED");
 
   function reset() {
+    loadedCustomer.current = null;
     setForm(empty);
     setMsg(null);
     setLookupQuery("");
@@ -146,6 +151,7 @@ export default function IssueJobPage() {
   }
 
   function pickRow(j: JobCardData) {
+    loadedCustomer.current = { name: j.customer.name, phone: j.customer.phone ?? "" };
     setForm({
       id: j.id,
       jobNumber: j.jobNumber,
@@ -185,7 +191,16 @@ export default function IssueJobPage() {
     };
 
     if (form.id) {
-      const updatePayload = { ...basePayload, mechanicId: form.mechanicId || null };
+      const updatePayload = {
+        ...basePayload,
+        mechanicId: form.mechanicId || null,
+        /* Correcting a mistyped name or number updates the customer the card
+           points at — see updateJobCard on the API side. */
+        ...(form.customerName.trim() && form.customerName.trim() !== loadedCustomer.current?.name
+          && { customerName: form.customerName.trim() }),
+        ...(form.cellNo.trim() && form.cellNo.trim() !== loadedCustomer.current?.phone
+          && { customerPhone: form.cellNo.trim() }),
+      };
       const r = await update(form.id, updatePayload);
       if (r) {
         setMsg(`Updated ${r.jobNumber}`);
@@ -213,29 +228,29 @@ export default function IssueJobPage() {
     }
   }
 
+  /* A job card exists to be billed, so a row in the list goes straight to its
+   * bill: the invoice if one was raised, otherwise a new one for this card. */
+  function openBill(j: JobCardData) {
+    if (j.invoice) {
+      router.push(`/dashboard/sale-invoice?invoiceId=${j.invoice.id}`);
+      return;
+    }
+    /* The API refuses to invoice a closed card, so opening a blank bill here
+       would only fail after the whole thing had been keyed in. */
+    if (j.status === "COMPLETED" || j.status === "CANCELLED") {
+      setMsg(`${j.jobNumber} is ${j.status.toLowerCase()} and has no invoice — it cannot be billed.`);
+      return;
+    }
+    router.push(`/dashboard/sale-invoice?jobCardId=${j.id}`);
+  }
+
   function generateInvoice() {
     if (!form.id) return;
     if (form.invoiceId) {
       router.push(`/dashboard/sale-invoice?invoiceId=${form.invoiceId}`);
       return;
     }
-    if (!form.isFinal) {
-      setMsg("Mark the Job Card as Final before generating an invoice.");
-      return;
-    }
     router.push(`/dashboard/sale-invoice?jobCardId=${form.id}`);
-  }
-
-  async function markFinal() {
-    if (!form.id) return;
-    if (!confirm("Mark this Job Card as Final? You will not be able to edit it after this — only generate the invoice.")) return;
-    setMsg(null);
-    const r = await finalize(form.id);
-    if (r) {
-      setForm((f) => ({ ...f, isFinal: r.isFinal, finalizedAt: r.finalizedAt, status: r.status }));
-      setMsg(`${r.jobNumber} marked as Final.`);
-      refreshList();
-    }
   }
 
   return (
@@ -283,6 +298,18 @@ export default function IssueJobPage() {
           <div className="panel-header"><span className="panel-title">Customer Information</span></div>
           <div style={{ padding: 8, display: "flex", flexDirection: "column", gap: 6 }}>
             <Field label="Reg. No. (Vehicle)">
+              {form.id ? (
+                /* Editing an existing card: this is the bike's registration,
+                   not a lookup. Searching here would offer to load a different
+                   job card, which is not what Edit is for. */
+                <input
+                  className="erp-input"
+                  value={form.vehicleRegNo}
+                  disabled={locked}
+                  onChange={(e) => setForm((f) => ({ ...f, vehicleRegNo: e.target.value.toUpperCase() }))}
+                  placeholder="Vehicle registration"
+                />
+              ) : (
               <SmartSearch<JobCardData>
                 value={lookupQuery || form.vehicleRegNo}
                 onChange={(q) => {
@@ -295,21 +322,32 @@ export default function IssueJobPage() {
                   if (!term) return [];
                   const r = await jobCardsApi.list(1, 30, undefined, term);
                   if (signal.aborted) return [];
+                  /* The server already matches reg no, customer name and
+                   * phone. Keep reg-no and phone hits so a returning customer
+                   * can be found by the number they call from. */
                   const lower = term.toLowerCase();
-                  return r.data.filter(
-                    (j) => (j.vehicleRegNo ?? "").toLowerCase().includes(lower),
-                  );
+                  const digits = term.replace(/\D/g, "");
+                  return r.data.filter((j) => {
+                    const reg = (j.vehicleRegNo ?? "").toLowerCase();
+                    const phone = (j.customer.phone ?? "").replace(/\D/g, "");
+                    return reg.includes(lower) || (digits.length >= 3 && phone.includes(digits));
+                  });
                 }}
                 columns={[
-                  { label: "Reg No", width: 130, mono: true, render: (j) => j.vehicleRegNo ?? "—" },
+                  { label: "Reg No", width: 120, mono: true, render: (j) => j.vehicleRegNo ?? "—" },
                   { label: "Customer", width: "1.2fr", render: (j) => j.customer.name },
-                  { label: "Phone", width: 120, mono: true, render: (j) => j.customer.phone ?? "—" },
-                  { label: "Last Job", width: 160, mono: true, render: (j) => j.jobNumber },
+                  { label: "Phone", width: 115, mono: true, render: (j) => j.customer.phone ?? "—" },
+                  /* Several visits can share a reg no or a phone; the date is
+                   * what tells them apart. */
+                  { label: "Date", width: 90, mono: true,
+                    render: (j) => new Date(j.createdAt).toLocaleDateString("en-GB",
+                      { day: "2-digit", month: "short", year: "2-digit" }) },
+                  { label: "Last Job", width: 110, mono: true, render: (j) => j.jobNumber },
                 ]}
                 keyOf={(j) => j.id}
                 onPick={(j) => pickPreviousJob(j)}
                 onClear={() => pickPreviousJob(null)}
-                placeholder="Type vehicle reg to auto-fill existing customer…"
+                placeholder="Type vehicle reg or mobile number…"
                 disabled={locked || form.id != null}
                 inputClassName="erp-input"
                 width="100%"
@@ -327,19 +365,20 @@ export default function IssueJobPage() {
                   if (customerNameRef.current) customerNameRef.current.focus();
                 }}
               />
+              )}
             </Field>
             <Field label="Customer Name">
               <input
                 className="erp-input"
                 ref={customerNameRef}
                 value={form.customerName}
-                disabled={locked || !!form.customerId || form.id != null}
+                disabled={locked || (!form.id && !!form.customerId)}
                 onChange={(e) => setForm({ ...form, customerName: e.target.value })}
               />
             </Field>
             <Field label="Cell No.">
               <input className="erp-input" value={form.cellNo}
-                disabled={locked || !!form.customerId || form.id != null}
+                disabled={locked || (!form.id && !!form.customerId)}
                 maxLength={11}
                 onChange={(e) => setForm({ ...form, cellNo: e.target.value.slice(0, 11) })} />
             </Field>
@@ -429,13 +468,7 @@ export default function IssueJobPage() {
               {saving ? "Saving…" : form.id ? "Update Job" : "Save Job"}
             </button>
           )}
-          {form.id && !form.isFinal && !form.invoiceId && form.status !== "COMPLETED" && form.status !== "CANCELLED" && (
-            <button className="erp-btn erp-btn-primary" disabled={saving} onClick={markFinal}
-              style={{ background: "#b45309" }}>
-              🔒 Mark as Final
-            </button>
-          )}
-          {form.id && form.isFinal && !form.invoiceId && form.status !== "COMPLETED" && form.status !== "CANCELLED" && (
+          {form.id && !form.invoiceId && form.status !== "COMPLETED" && form.status !== "CANCELLED" && (
             <button className="erp-btn erp-btn-primary" onClick={generateInvoice} style={{ background: "#0a7a30" }}>
               Generate Invoice
             </button>
@@ -538,12 +571,14 @@ export default function IssueJobPage() {
                   <th>Title</th>
                   <th>Status</th>
                   <th>Invoice</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
-                {recent.length === 0 && <tr><td colSpan={6} className="table-empty">No job cards yet.</td></tr>}
+                {recent.length === 0 && <tr><td colSpan={7} className="table-empty">No job cards yet.</td></tr>}
                 {recent.map((j) => (
-                  <tr key={j.id} onClick={() => pickRow(j)} style={{ cursor: "pointer" }}>
+                  <tr key={j.id} onClick={() => openBill(j)} style={{ cursor: "pointer" }}
+                      title="Open this job card's bill">
                     <td style={{ fontFamily: "monospace", fontWeight: 600 }}>{j.jobNumber}</td>
                     <td>{j.customer.name}</td>
                     <td>{j.vehicleRegNo ?? "-"}</td>
@@ -558,6 +593,17 @@ export default function IssueJobPage() {
                       {j.invoice?.invoiceNumber
                         ? j.invoice.invoiceNumber
                         : <span style={{ color: "#aaa" }}>{j.jobNumber}</span>}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="erp-btn erp-btn-default"
+                        style={{ padding: "1px 8px", fontSize: 10 }}
+                        onClick={(e) => { e.stopPropagation(); pickRow(j); }}
+                        title="Load this job card into the form"
+                      >
+                        Edit
+                      </button>
                     </td>
                   </tr>
                 ))}
